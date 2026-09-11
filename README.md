@@ -2,7 +2,7 @@
 
 > **Use the upstream you need. Keep the secrets it doesn't.**
 
-**Reduct Proxy** is a drop-in privacy relay for LLM APIs. Point your existing OpenAI- or Anthropic-compatible client at the proxy, and sensitive values are replaced with reversible `{{reduct:...}}` placeholders **before they reach the upstream model**. When the model returns those placeholders—whether in normal text, JSON, SSE, or tool-call arguments—the proxy restores the original values on the way back.
+**Cosy Redact Gateway** is a drop-in privacy relay for LLM APIs. Point your existing OpenAI- or Anthropic-compatible client at the proxy, and sensitive values are replaced with reversible `{{reduct:...}}` placeholders **before they reach the upstream model**. When the model returns those placeholders—whether in normal text, JSON, SSE, or tool-call arguments—the proxy restores the original values on the way back.
 
 **Single file · zero runtime dependencies · Cloudflare Workers · Deno · Node 20+ · streaming-safe**
 
