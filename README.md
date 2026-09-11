@@ -1,4 +1,4 @@
-# Reduct Proxy
+# Cosy Redact Gateway
 
 > **Use the upstream you need. Keep the secrets it doesn't.**
 
