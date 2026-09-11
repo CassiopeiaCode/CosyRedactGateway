@@ -231,7 +231,7 @@ TransformVetter: https://github.com/CassiopeiaCode/TransformVetter
 
 ## Linux.do
 
-Thanks to the support from [Linux.do](Linux.do)
+Thanks to the support from [Linux.do](//Linux.do)
 
 ## License
 
