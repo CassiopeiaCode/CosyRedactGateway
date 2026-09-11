@@ -1,143 +1,150 @@
 # Reduct Proxy
 
-A dependency-free serverless privacy relay for LLM APIs. It redacts sensitive values **before** sending JSON to an upstream provider, keeps the plaintext mapping only for the lifetime of the request, and restores placeholders in normal JSON responses and SSE streams.
+A single-file, serverless-friendly privacy relay for LLM APIs. It keeps the upstream protocol intact, redacts sensitive request text before forwarding it, remembers the replacements only for the lifetime of that request, and restores matching placeholders in normal JSON responses or SSE streams.
 
-The proxy is intentionally protocol-preserving: it does **not** translate OpenAI ↔ Anthropic formats. The routing shape follows the same `/{config}${upstream}` idea used by TransformVetter, while the body remains in the client's original protocol.
+`worker.js` is the deployable artifact. It is written only against Web Fetch, Web Streams, and Web Crypto APIs so the same file works as a Cloudflare Worker module and as a directly executable Deno program.
 
-## Supported API families
+## Routing
 
-- OpenAI Chat Completions (`/v1/chat/completions` and compatible endpoints)
-- OpenAI Responses (`/v1/responses` and compatible endpoints)
-- Anthropic Messages (`/v1/messages` and compatible endpoints)
-- Generic JSON pass-through also works, but Reduct Notice injection is only guaranteed when a recognizable `messages` or `input` shape exists.
-
-Both normal responses and `text/event-stream` responses are supported. Streaming restoration handles placeholders split across **HTTP chunks and separate logical SSE delta events**.
-
-## URL format
+The proxy follows the same URL-routing idea as TransformVetter: the proxy configuration and the real upstream URL live in the path.
 
 ```text
-https://YOUR_PROXY/<FLAGS>$<UPSTREAM_URL>
+https://<proxy-host>/<flags>$<upstream-url>
 ```
 
-Example:
+Examples:
 
 ```text
 https://proxy.example.com/HPSE$https://api.openai.com/v1/chat/completions
+https://proxy.example.com/E$https://api.openai.com/v1/responses
+https://proxy.example.com/P$https://api.anthropic.com/v1/messages
+https://proxy.example.com/$https://api.example.com/v1/responses
 ```
 
-Flags are case-insensitive and order-independent:
+An empty flag section means **all rules enabled**.
 
 | Flag | Detector |
 |---|---|
-| `H` | Dynamic high-entropy block detector |
-| `P` | Phone numbers |
-| `S` | `sk-` followed by 60+ alphanumeric characters |
-| `I` | PRC 18-digit resident ID with checksum validation |
-| `B` | 13–19 digit bank-card candidates with Luhn validation |
-| `E` | Email addresses |
-| `G` | Gitleaks-style portable secret rule pack |
+| `H` | length-aware high-entropy ASCII alphanumeric blocks (`length > 8`) |
+| `P` | phone numbers (PRC mobile plus international `+...` form) |
+| `S` | `sk-` followed by 60+ ASCII alphanumeric characters |
+| `I` | PRC citizen identity number with checksum validation |
+| `B` | 13-19 digit bank-card candidates with Luhn validation, including common grouped forms |
+| `E` | email addresses |
+| `G` | broad serverless Gitleaks-compatible rule evaluator (218 JS entries; keywords, secret groups, Shannon entropy, allowlists); see [Gitleaks compatibility](docs/GITLEAKS-COMPAT.md) |
 
-No flags means **all flags are enabled**:
+The canonical all-on string is `HPSIBEG`, but `/$https://...` is preferred when everything should be enabled.
 
-```text
-https://proxy.example.com/$https://api.openai.com/v1/responses
-```
+Unknown flag letters fail with HTTP 400 instead of silently changing policy.
 
-Unknown flags return HTTP 400 instead of silently weakening protection.
+## Supported LLM wire formats
 
-## Reduct Notice
+The proxy **does not translate protocols**. It preserves the request shape and only edits string values that may contain sensitive text.
 
-The notice is always enabled and has no flag. Redaction happens first, then the notice is inserted at byte/string position 0 of the last user text message:
+It has explicit notice injection and stream handling for:
 
-```text
-We have redacted sensitive content before forwarding this request. You may see sensitive values represented as placeholders in the form {{reduct:sha256}}. You may reproduce these placeholders exactly as shown; our system will automatically restore the original sensitive text in the response.
-```
+- OpenAI Chat Completions (`/v1/chat/completions`)
+- OpenAI Responses (`/v1/responses`)
+- Anthropic Messages (`/v1/messages`)
 
-For OpenAI Responses with a string `input`, the notice is prepended directly. For message/content arrays, the first text block of the last `user` message is prefixed; if the user message is image/tool-only, a text block is inserted first.
+Unknown JSON endpoints are still proxied and redacted generically, but no protocol-specific user-message notice is injected unless the body can be recognized as one of the supported families.
 
-## Placeholder design
+Headers such as `Authorization`, `x-api-key`, `anthropic-version`, OpenAI project/organization headers, and arbitrary provider headers are forwarded. Hop-by-hop headers plus proxy/browser identity headers (`Cookie`, `CF-*`, `Sec-*`, forwarding IP headers, etc.) are removed so the relay does not accidentally disclose its own session or network identity to an untrusted upstream. Upstream redirects are not followed.
 
-At runtime startup/isolate creation a random 256-bit salt is generated. For each sensitive plaintext `x`:
+## Redaction lifecycle
 
-```text
-{{reduct:hex(sha256(x + startup_salt))}}
-```
+At runtime/isolate startup, `worker.js` generates a random 256-bit salt. For every request it creates a fresh in-memory replacement table.
 
-Example shape:
+A sensitive value becomes:
 
 ```text
-{{reduct:5e1c...64-hex-characters...a901}}
+{{reduct:<sha256-hex>}}
 ```
 
-The request owns two temporary maps (`plaintext → token` and `token → plaintext`). Equal plaintext in one request reuses the same token. The maps are never persisted and disappear after that request/stream completes.
+where the digest is:
 
-A placeholder-looking value supplied by the client is not nested and is never restored unless it is an exact token generated in the current request.
+```text
+SHA-256(original_text + runtime_salt)
+```
+
+The same plaintext in the same runtime therefore gets the same token, and the same request reuses one mapping entry. The mapping is never persisted and is discarded after the request/response stream completes.
+
+The implementation deliberately does not expose the salt or plaintext in response headers or logs.
+
+### Reduct Notice
+
+The notice is **always enabled**; it is not a URL flag. Redaction happens first, then the following English metadata is inserted at byte/character position 0 of the last user message:
+
+```text
+We have redacted sensitive content in this conversation before forwarding it. You may see placeholders in the form {{reduct:sha256}}; each placeholder represents sensitive text. You may output these placeholders exactly as received, and our system will automatically replace them with the original sensitive text.
+```
+
+For OpenAI Responses with a string `input`, the notice is prefixed to that string. For array/message forms it is prefixed to the last `role: "user"` textual content block. If there is no user message, nothing artificial is added.
+
+## Streaming
+
+`text/event-stream` responses are restored incrementally with downstream backpressure.
+
+The stream layer understands text/delta channels used by OpenAI Chat, OpenAI Responses, and Anthropic Messages, including tool/function argument deltas and common reasoning/text delta fields. A partial prefix of a possible `{{reduct:...}}` token is retained until enough subsequent SSE data proves that it is either a complete known token or cannot become one.
+
+This means a token split across HTTP chunks **and** across logical SSE events is restored correctly. The tests exhaust every possible split position of a 75-byte placeholder and also exercise one-byte transport chunks.
 
 ## High-entropy detector
 
-`H` first tokenizes text into ASCII alphanumeric blocks using spaces and special characters as separators. Only blocks with **more than 8 characters** are evaluated.
+`H` runs only after tokenizing text into ASCII alphanumeric blocks separated by whitespace/special characters. It never scans blocks of length 8 or less, and numeric-only blocks are left to the structured phone/ID/bank detectors.
 
-The score is character-bigram cross entropy, not naive character-frequency Shannon entropy. The threshold decreases with block length (about `5.424 bits/char` at length 9 to `4.566` at 128+). A Shannon-diversity guard prevents repetitive strings such as `aaaaaaaaaaaa` from being classified as secret-like solely because their English transition probability is unusual.
+It uses an English character-bigram cross-entropy score rather than ordinary empirical Shannon entropy. The decision threshold decreases with block length and is linearly interpolated between calibrated anchors. A small symbol-diversity check rejects repetitive strings.
 
-The committed Monte Carlo regression test uses a held-out word set and 30,000 randomly concatenated natural-language blocks; the current deterministic run classifies 296/30,000 (`0.9867%`) as high entropy, satisfying the requested `<1%` boundary. Random hex/base62 recall is separately tested.
+The deterministic local regression fixture currently produces:
 
-See [`docs/ENTROPY.md`](docs/ENTROPY.md).
+- natural-word concatenations: `296 / 30000 = 0.9867%` classified high entropy
+- random hex/base62 recall: about 91-92% at length 9, 96-98% at length 12, >99% around length 16, and 100% in the sampled length-24/32 sets
 
-## Request safety behavior
-
-This proxy is designed for the case where the upstream is not trusted with plaintext:
-
-- API authentication headers such as `Authorization`, `x-api-key`, `anthropic-version`, OpenAI organization/project headers, etc. are forwarded.
-- Network-origin headers such as `cf-connecting-ip`, `x-forwarded-for`, `x-real-ip`, `forwarded`, `cf-ray`, and hop-by-hop headers are stripped.
-- Request bodies with data must be JSON. Non-JSON bodies fail with 415 rather than being forwarded unredacted.
-- Invalid JSON fails with 400.
-- Oversized bodies or too many distinct redactions fail closed with 413.
-- Image/audio/base64 payload fields are skipped so the proxy does not replace random-looking media bytes.
-- Response JSON is parsed and reserialized during restoration so plaintext containing quotes/backslashes cannot corrupt JSON.
-
-Defaults:
-
-```text
-REDUCT_MAX_BODY_BYTES = 4194304
-REDUCT_MAX_REDACTIONS = 4096
-```
-
-Optional environment variables:
-
-| Variable | Meaning |
-|---|---|
-| `REDUCT_ALLOWED_HOSTS` | Comma-separated upstream host allow-list. Empty = arbitrary HTTP/HTTPS upstreams allowed. |
-| `REDUCT_MAX_BODY_BYTES` | Maximum request body size. |
-| `REDUCT_MAX_REDACTIONS` | Maximum number of distinct plaintext values per request. |
-| `REDUCT_CORS_ORIGIN` | CORS allow-origin value. Default `*`. |
-
-For an Internet-facing deployment, setting `REDUCT_ALLOWED_HOSTS` is strongly recommended.
+See [docs/ENTROPY.md](docs/ENTROPY.md) and run `npm run entropy-report` to reproduce the report.
 
 ## Cloudflare Workers
 
-`worker.js` is already a single-file ES module and has no runtime dependencies.
-
-With Wrangler installed:
+No build step is required.
 
 ```bash
+npm install
+npm test
 npx wrangler deploy
 ```
 
-Or paste `worker.js` into a module-style Cloudflare Worker. `wrangler.toml` is included.
+`wrangler.toml` points directly at `worker.js`.
 
-## Deno / Deno Deploy
+You can also paste/upload `worker.js` as a module Worker. The module exports:
 
-The same file is directly executable:
-
-```bash
-deno run --allow-net worker.js
+```js
+export default {
+  fetch(request, env, ctx) { ... }
+}
 ```
 
-If you want the optional environment settings locally, also grant `--allow-env`.
+Recommended production variable:
 
-## Node local server
+```text
+REDUCT_ALLOWED_HOSTS=api.openai.com,api.anthropic.com,my-provider.example
+```
 
-Node 20+ (Node 22 is used by CI):
+Without `REDUCT_ALLOWED_HOSTS`, the proxy accepts arbitrary `http://` and `https://` upstream hosts because arbitrary upstream routing is part of the design. Do not expose an unrestricted instance publicly unless you intentionally want an open relay.
+
+## Deno
+
+The same file can run directly:
+
+```bash
+deno run --allow-net --allow-env worker.js
+```
+
+or be used as the entry file in a Deno Deploy project. At direct execution, the bottom of `worker.js` calls `Deno.serve(...)`; when imported as a Cloudflare Worker module that branch is inert.
+
+Environment variables are read with `Deno.env.toObject()` only in direct Deno mode.
+
+## Local Node server
+
+Node is only a development adapter; `worker.js` itself does not import Node APIs.
 
 ```bash
 npm start
@@ -155,9 +162,24 @@ Example:
 curl -N \
   -H 'content-type: application/json' \
   -H "authorization: Bearer $OPENAI_API_KEY" \
-  --data '{"model":"gpt-5","input":"email me at private@example.com","stream":true}' \
-  'http://127.0.0.1:8787/E$https://api.openai.com/v1/responses'
+  --data '{"model":"gpt-4.1-mini","messages":[{"role":"user","content":"mail me at alice@example.com"}],"stream":true}' \
+  'http://127.0.0.1:8787/E$https://api.openai.com/v1/chat/completions'
 ```
+
+## Runtime settings
+
+| Variable | Default | Meaning |
+|---|---:|---|
+| `REDUCT_ALLOWED_HOSTS` | unset | comma-separated hostname allow-list; unset allows arbitrary upstreams |
+| `REDUCT_MAX_BODY_BYTES` | 4 MiB | maximum request body buffered for safe JSON redaction |
+| `REDUCT_MAX_REDACTIONS` | 4096 | maximum unique plaintext replacements in one request |
+| `REDUCT_CORS_ORIGIN` | `*` | `Access-Control-Allow-Origin` value |
+| `HOST` | `127.0.0.1` | Node local adapter only |
+| `PORT` | `8787` | Node local adapter only |
+
+Non-empty request bodies must be JSON. This is intentional fail-closed behavior: an unknown binary or plaintext body is rejected with 415 instead of being forwarded without redaction.
+
+Large base64 image/audio payload fields and URL/control fields are excluded from text redaction to avoid corrupting multimodal requests.
 
 ## Tests
 
@@ -167,25 +189,45 @@ npm test
 
 The suite covers:
 
-- flag/default routing and upstream query preservation;
-- all built-in structured detectors and overlap priority;
-- deterministic hashing/reuse and current-request-only restoration;
-- OpenAI Chat, OpenAI Responses, and Anthropic request notice injection;
-- image/base64 skip behavior;
-- normal JSON restoration;
-- real local HTTP upstream forwarding and API-key preservation;
-- fail-closed body/redaction limits;
-- SSE placeholders split across separate logical delta events;
-- arbitrary HTTP transport chunking;
-- every possible split position inside a 75-character placeholder;
-- JSON escaping after streamed restoration;
-- high-entropy false-positive and random-secret recall regression tests.
+- URL flag/default routing and upstream query preservation
+- lossless text-block offsets
+- email, phone, `sk-`, PRC ID, Luhn bank card, and representative Gitleaks-compatible provider rules
+- repeated-value token reuse and exact restoration
+- OpenAI Chat, OpenAI Responses, and Anthropic Messages request bodies
+- Reduct Notice placement
+- authorization/API-key forwarding and stripping of proxy-only identity headers
+- JSON fail-closed behavior and redaction limits
+- real local HTTP upstream integration
+- real local Node adapter integration
+- non-stream restoration
+- OpenAI Chat/Responses and Anthropic SSE
+- tool/reasoning/partial-JSON delta fields
+- one-byte HTTP chunks and every placeholder split boundary
+- length-aware entropy Monte Carlo regression
+- static Web-API-only portability check for `worker.js`
 
-## G flag / Gitleaks compatibility
+GitHub Actions runs the same test suite on every push and pull request.
 
-The `G` flag is deliberately implemented without native binaries or WASM so this repository stays a single JavaScript file on Cloudflare and Deno. The official Gitleaks default configuration uses Go RE2 syntax plus per-rule keyword, path, allowlist, and entropy semantics, some of which do not map exactly to JavaScript `RegExp`.
+The `G` rule signatures are partly derived from Gitleaks; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
-The included portable rule pack covers common provider credential families and a generic credential assignment rule, but it is **not a byte-for-byte execution of every current upstream Gitleaks rule**. See [`docs/GITLEAKS-COMPAT.md`](docs/GITLEAKS-COMPAT.md). If exact Gitleaks parity is mandatory, the correct next step is a RE2/WASM rule engine rather than pretending incompatible regex semantics are identical.
+## Security notes
+
+This relay reduces what an untrusted upstream sees, but it is not a cryptographic sandbox and no pattern detector can guarantee discovery of every secret. In particular:
+
+- a model can modify a placeholder instead of echoing it, in which case it cannot be restored;
+- a detector false negative is still sent upstream;
+- an unrestricted deployment is an open proxy unless you set `REDUCT_ALLOWED_HOSTS` or protect the Worker externally;
+- runtime salts are isolate-local, not globally stable across Cloudflare/Deno instances;
+- replacement state is intentionally request-local, so a placeholder from an older request cannot be restored later;
+- image/audio binary content is not inspected by this text-focused implementation.
+
+See [SECURITY.md](SECURITY.md) for deployment guidance.
+
+## TransformVetter relationship
+
+The URL envelope intentionally follows TransformVetter's documented `/{config}${upstream-url}` proxy convention, while this project uses a much smaller letter-flag config and **pass-through protocol semantics**. It does not include TransformVetter's protocol conversion or moderation engine.
+
+TransformVetter: https://github.com/CassiopeiaCode/TransformVetter
 
 ## License
 

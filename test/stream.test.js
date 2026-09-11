@@ -60,10 +60,13 @@ test("Anthropic SSE restores content_block_delta split across events", async()=>
 });
 
 test("SSE JSON stays valid when restored source contains a quote", async()=>{
-  const raw='api_key="ABCDEFGH1234567890';
+  const secret='ABCDEFGH1234567890';
+  const raw=`api_key="${secret}`;
   const fetchImpl=async(_u,init)=>{
     const b=JSON.parse(init.body), token=b.messages[0].content.match(TOKEN)[0];
-    const a={choices:[{index:0,delta:{content:token.slice(0,20)}}]}, z={choices:[{index:0,delta:{content:token.slice(20)}}]};
+    // The Gitleaks-compatible generic rule redacts secretGroup only. Keep the quote
+    // in the model's surrounding delta so JSON escaping is still exercised.
+    const a={choices:[{index:0,delta:{content:'api_key="'+token.slice(0,20)}}]}, z={choices:[{index:0,delta:{content:token.slice(20)}}]};
     return chunkedResponse(`data: ${JSON.stringify(a)}\n\ndata: ${JSON.stringify(z)}\n\n`);
   };
   const r=await handleRequest(request("https://p/G$https://api.example/v1/chat/completions",{model:"g",stream:true,messages:[{role:"user",content:raw}]}),{}, {fetchImpl,salt:"fixed"});
@@ -79,10 +82,37 @@ test("every possible placeholder split position is restored across Chat SSE even
       assert.equal(token.length,75);
       const a={choices:[{index:0,delta:{content:token.slice(0,cut)}}]};
       const z={choices:[{index:0,delta:{content:token.slice(cut)}}]};
-      return chunkedResponse(`data: ${JSON.stringify(a)}\n\ndata: ${JSON.stringify(z)}\n\n`,[(cut%7)+1,1,9,2]);
+      return chunkedResponse(`data: ${JSON.stringify(a)}\n\ndata: ${JSON.stringify(z)}\n\n`,[1]);
     };
     const r=await handleRequest(request("https://p/E$https://api.example/v1/chat/completions",{model:"g",stream:true,messages:[{role:"user",content:raw}]}),{}, {fetchImpl,salt:"fixed"});
     const events=sseData(await r.text());
     assert.equal(events.map(x=>x.choices[0].delta.content).join(""),raw,`cut=${cut}`);
   }
+});
+
+test("Chat reasoning_content deltas restore placeholders across SSE events", async()=>{
+  const raw="a@example.com";
+  const fetchImpl=async(_u,init)=>{
+    const b=JSON.parse(init.body), token=b.messages[0].content.match(TOKEN)[0], cut=23;
+    return chunkedResponse(
+      `data: ${JSON.stringify({choices:[{index:0,delta:{reasoning_content:token.slice(0,cut)}}]})}\n\n`+
+      `data: ${JSON.stringify({choices:[{index:0,delta:{reasoning_content:token.slice(cut)}}]})}\n\n`
+    );
+  };
+  const r=await handleRequest(request("https://p/E$https://api.example/v1/chat/completions",{model:"g",stream:true,messages:[{role:"user",content:raw}]}),{}, {fetchImpl,salt:"fixed"});
+  const events=sseData(await r.text());
+  assert.equal(events.map(x=>x.choices?.[0]?.delta?.reasoning_content||"").join(""),raw);
+});
+
+test("Anthropic partial_json deltas restore placeholders across SSE events", async()=>{
+  const raw="a@example.com";
+  const fetchImpl=async(_u,init)=>{
+    const b=JSON.parse(init.body), token=b.messages[0].content.match(TOKEN)[0], cut=27;
+    const a={type:"content_block_delta",index:1,delta:{type:"input_json_delta",partial_json:token.slice(0,cut)}};
+    const z={type:"content_block_delta",index:1,delta:{type:"input_json_delta",partial_json:token.slice(cut)}};
+    return chunkedResponse(`event: content_block_delta\ndata: ${JSON.stringify(a)}\n\nevent: content_block_delta\ndata: ${JSON.stringify(z)}\n\n`);
+  };
+  const r=await handleRequest(request("https://p/E$https://api.example/v1/messages",{model:"c",stream:true,max_tokens:20,messages:[{role:"user",content:raw}]}),{}, {fetchImpl,salt:"fixed"});
+  const events=sseData(await r.text());
+  assert.equal(events.map(x=>x.delta?.partial_json||"").join(""),raw);
 });

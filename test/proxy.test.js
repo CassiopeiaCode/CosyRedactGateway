@@ -67,3 +67,43 @@ test("optional upstream allow-list blocks other hosts", async () => {
   const r=await handleRequest(req("https://p/E$https://evil.example/v1/responses",{input:"hello"}),{REDUCT_ALLOWED_HOSTS:"api.example.com"},{fetchImpl:async()=>{throw new Error("must not call")}});
   assert.equal(r.status,403);
 });
+
+test("proxy-only browser and Cloudflare headers are not forwarded", async () => {
+  let seenHeaders;
+  const fetchImpl=async (_url,init)=>{
+    seenHeaders=init.headers;
+    return new Response(JSON.stringify({ok:true}),{headers:{"content-type":"application/json"}});
+  };
+  const request=req("https://proxy.example/E$https://api.example/v1/responses",{input:"hello"},{
+    authorization:"Bearer keep-me",
+    cookie:"session=do-not-leak",
+    "cf-connecting-ip":"203.0.113.1",
+    "cf-access-jwt-assertion":"private-proxy-token",
+    "sec-fetch-site":"same-origin",
+    "x-api-key":"keep-this-too"
+  });
+  await handleRequest(request,{}, {fetchImpl,salt:"fixed"});
+  assert.equal(seenHeaders.get("authorization"),"Bearer keep-me");
+  assert.equal(seenHeaders.get("x-api-key"),"keep-this-too");
+  assert.equal(seenHeaders.get("cookie"),null);
+  assert.equal(seenHeaders.get("cf-connecting-ip"),null);
+  assert.equal(seenHeaders.get("cf-access-jwt-assertion"),null);
+  assert.equal(seenHeaders.get("sec-fetch-site"),null);
+});
+
+test("Responses array format injects notice into last user item only", async () => {
+  let seen;
+  const fetchImpl=async (_url,init)=>{
+    seen=JSON.parse(init.body);
+    return new Response(JSON.stringify({output_text:"ok"}),{headers:{"content-type":"application/json"}});
+  };
+  const body={model:"g",input:[
+    {role:"user",content:[{type:"input_text",text:"first"}]},
+    {role:"assistant",content:[{type:"output_text",text:"answer"}]},
+    {role:"user",content:[{type:"input_text",text:"mail a@example.com"}]}
+  ]};
+  await handleRequest(req("https://p/E$https://api.example/v1/responses",body),{}, {fetchImpl,salt:"fixed"});
+  assert.equal(seen.input[0].content[0].text,"first");
+  assert.match(seen.input[2].content[0].text,/^We have redacted sensitive content/);
+  assert(!seen.input[2].content[0].text.includes("a@example.com"));
+});

@@ -1,13 +1,25 @@
-# Security notes
+# Security
 
-Reduct Proxy is a privacy boundary, so its default failure mode for request bodies is deliberately conservative.
+## Threat model
 
-- JSON parsing/redaction must finish before the upstream request is sent.
-- Non-JSON request bodies with content are rejected.
-- Redaction/body limits reject the request instead of bypassing redaction.
-- Plaintext maps are request-local and are never written to logs or storage by this project.
-- Network-origin headers are stripped before forwarding.
-- For public deployments, configure `REDUCT_ALLOWED_HOSTS` to avoid operating an unrestricted forward proxy.
-- Do not log request bodies, response bodies, the runtime salt, or the in-memory restoration map in platform observability code.
+Reduct Proxy assumes the selected upstream may store or inspect everything it receives. The relay therefore edits supported JSON request text before the upstream fetch and only keeps the plaintext/token mapping in memory for the lifetime of that request.
 
-A random salt is created per Worker isolate / Deno or Node process startup. It is intentionally not durable. Restoration depends only on the map retained by the same in-flight request, so process persistence is not required.
+It does **not** attempt to make a malicious upstream trustworthy. It only reduces accidental disclosure of values recognized by the configured detectors.
+
+## Deployment checklist
+
+1. Set `REDUCT_ALLOWED_HOSTS` unless arbitrary upstream routing is an explicit requirement.
+2. Protect public deployments with your platform's authentication/rate limiting if they should not be open relays.
+3. Keep `REDUCT_MAX_BODY_BYTES` and `REDUCT_MAX_REDACTIONS` bounded.
+4. Do not log request bodies, upstream bodies, or the per-runtime salt in surrounding infrastructure.
+5. Keep redirects disabled. The implementation uses `redirect: "manual"` so an upstream cannot redirect the forwarded API key to a second origin.
+6. Treat URL-embedded upstream query parameters as visible routing metadata. Secrets should normally remain in forwarded authorization headers, not the proxy URL.
+7. Review `docs/GITLEAKS-COMPAT.md` before relying on `G` as an exact Gitleaks replacement.
+
+## Header policy
+
+Authorization/provider headers are preserved, while hop-by-hop and relay identity/session headers are removed. In particular the proxy drops `Cookie`, `CF-*`, `Sec-*`, `Forwarded`, `X-Forwarded-*`, `X-Real-IP`, and similar headers before the upstream fetch.
+
+## State lifetime
+
+The salt is generated once when a Worker/Deno isolate starts. Multiple concurrent isolates may therefore use different salts. Restoration does not depend on cross-request or cross-instance state: each response stream closes over its own request-local mapping.

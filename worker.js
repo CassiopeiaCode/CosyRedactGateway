@@ -13,9 +13,9 @@ const FLAG_NAMES = Object.freeze({
 });
 
 export const REDUCT_NOTICE =
-  "We have redacted sensitive content before forwarding this request. " +
-  "You may see sensitive values represented as placeholders in the form {{reduct:sha256}}. " +
-  "You may reproduce these placeholders exactly as shown; our system will automatically restore the original sensitive text in the response.";
+  "We have redacted sensitive content in this conversation before forwarding it. " +
+  "You may see placeholders in the form {{reduct:sha256}}; each placeholder represents sensitive text. " +
+  "You may output these placeholders exactly as received, and our system will automatically replace them with the original sensitive text.";
 
 const TOKEN_PREFIX = "{{reduct:";
 const TOKEN_SUFFIX = "}}";
@@ -131,44 +131,322 @@ function chinaIdValid(id) {
   return checks[sum % 11] === id[17].toUpperCase();
 }
 
-// A serverless-portable Gitleaks-style provider rule pack. The official Gitleaks default
-// configuration is RE2/TOML and includes path/keyword/entropy semantics that are not byte-for-byte
-// portable to JavaScript RegExp. See docs/GITLEAKS-COMPAT.md.
-const GITLEAK_RULES = [
-  /\bA3-[A-Z0-9]{6}-(?:(?:[A-Z0-9]{11})|(?:[A-Z0-9]{6}-[A-Z0-9]{5}))-[A-Z0-9]{5}-[A-Z0-9]{5}-[A-Z0-9]{5}\b/g,
-  /ops_eyJ[A-Za-z0-9+/]{120,}={0,3}/g,
-  /AGE-SECRET-KEY-1[QPZRY9X8GF2TVDW0S3JN54KHCE6MUA7L]{58}/g,
-  /\b(?:AKIA|ASIA|A3T[A-Z0-9]|ABIA|ACCA)[A-Z0-9]{16}\b/g,
-  /\bABSK[A-Za-z0-9+/]{109,269}={0,2}\b/g,
-  /\bsk-ant-(?:api03|admin01)-[A-Za-z0-9_-]{90,}AA\b/g,
-  /\bgh[pousr]_[A-Za-z0-9]{36,255}\b/g,
-  /\bgithub_pat_[A-Za-z0-9_]{70,255}\b/g,
-  /\bglpat-[A-Za-z0-9_-]{20,}\b/g,
-  /\bxox[baprs]-[A-Za-z0-9-]{10,}\b/g,
-  /\bsk_(?:live|test)_[A-Za-z0-9]{20,}\b/g,
-  /\brk_(?:live|test)_[A-Za-z0-9]{20,}\b/g,
-  /\bSG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}\b/g,
-  /\bAIza[0-9A-Za-z_-]{35}\b/g,
-  /\bya29\.[0-9A-Za-z_-]+\b/g,
-  /\b(?:npm_[A-Za-z0-9]{36}|pypi-[A-Za-z0-9_-]{50,})\b/g,
-  /\bdapi[a-f0-9]{32}(?:-\d)?\b/gi,
-  /\b(?:dop_v1_[a-f0-9]{64}|doo_v1_[a-f0-9]{64})\b/gi,
-  /\b(?:lin_api_[A-Za-z0-9]{40,}|pat[0-9A-Za-z]{14}\.[a-f0-9]{64})\b/g,
-  /\b(?:sq0atp|sq0csp)-[A-Za-z0-9_-]{20,}\b/g,
-  /\b(?:shpat|shpca|shppa|shpss)_[a-fA-F0-9]{32}\b/g,
-  /\b(?:heroku|hf)_[A-Za-z0-9_-]{30,}\b/gi,
-  /\b(?:mailgun|mailchimp)[-_]?(?:api[-_]?key)?[=: ]+[A-Za-z0-9_-]{20,}\b/gi,
-  /\b(?:cloudflare|cf)[-_]?(?:api[-_]?key|token)?[=: ]+[A-Za-z0-9_-]{20,}\b/gi,
-  /\b(?:twilio)[-_]?(?:auth[-_]?token)?[=: ]+[A-Za-z0-9]{20,}\b/gi,
-  /\b(?:newrelic|new_relic)[-_]?(?:api[-_]?key)?[=: ]+[A-Za-z0-9_-]{20,}\b/gi,
-  /\b(?:pulumi)[-_]?(?:access[-_]?token)?[=: ]+[A-Za-z0-9_-]{20,}\b/gi,
-  /\b(?:postman)[-_]?(?:api[-_]?key)?[=: ]+[A-Za-z0-9_-]{20,}\b/gi,
-  /\b(?:telegram)[-_]?(?:bot[-_]?token)?[=: ]+\d{5,}:[A-Za-z0-9_-]{20,}\b/gi,
-  /\bhvs\.[A-Za-z0-9_-]{20,}\b/g,
-  /-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----[\s\S]*?-----END (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----/g,
-  /\beyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{16,}\b/g,
-  /(?:(?:api|access|secret|private)[-_ ]?(?:key|token)|password|passwd|pwd)[\w .-]{0,20}(?:=|:|=>)[\s'"`]{0,5}[A-Za-z0-9_~+\/=.@-]{8,}/gi,
+// Portable execution layer for the current upstream Gitleaks default rule style.
+// Upstream uses Go/RE2 + TOML metadata. In a single Web-API-only Worker we execute
+// JavaScript-safe equivalents and preserve the important rule semantics: keywords,
+// secretGroup extraction, Shannon entropy thresholds, regex allowlists, and stopwords.
+// File-path-only rules have no meaningful path in an LLM JSON body and are therefore
+// not included. See docs/GITLEAKS-COMPAT.md.
+function regexEscape(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function glRule(id, regex, options = {}) {
+  return {
+    id,
+    regex,
+    secretGroup: options.secretGroup || 0,
+    entropy: options.entropy || 0,
+    keywords: (options.keywords || []).map((x) => x.toLowerCase()),
+    allowRegexes: options.allowRegexes || [],
+    stopwords: (options.stopwords || []).map((x) => x.toLowerCase()),
+  };
+}
+
+function assignmentRule(id, names, valueSource, options = {}) {
+  const keys = Array.isArray(names) ? names : [names];
+  const keySource = options.keySource || keys.map(regexEscape).join("|");
+  const regex = new RegExp(
+    String.raw`[\w.-]{0,50}?(?:${keySource})(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}(${valueSource})(?:[\x60'"\s;]|\\[nr]|$)`,
+    "gi",
+  );
+  return glRule(id, regex, { ...options, secretGroup: 1, keywords: options.keywords || keys });
+}
+
+const GITLEAK_DIRECT_RULES = [
+  glRule("1password-secret-key", /\b(A3-[A-Z0-9]{6}-(?:(?:[A-Z0-9]{11})|(?:[A-Z0-9]{6}-[A-Z0-9]{5}))-[A-Z0-9]{5}-[A-Z0-9]{5}-[A-Z0-9]{5})\b/g, { secretGroup:1, entropy:3.8, keywords:["a3-"] }),
+  glRule("1password-service-account-token", /(ops_eyJ[A-Za-z0-9+/]{250,}={0,3})/g, { secretGroup:1, entropy:4, keywords:["ops_"] }),
+  glRule("age-secret-key", /(AGE-SECRET-KEY-1[QPZRY9X8GF2TVDW0S3JN54KHCE6MUA7L]{58})/g, { secretGroup:1, keywords:["age-secret-key-1"] }),
+  glRule("airtable-personal-access-token", /\b(pat[A-Za-z0-9]{14}\.[a-f0-9]{64})\b/g, { secretGroup:1, keywords:["pat"] }),
+  glRule("alibaba-access-key-id", /\b(LTAI[a-z0-9]{20})(?:[\x60'"\s;]|\\[nr]|$)/gi, { secretGroup:1, entropy:2, keywords:["ltai"] }),
+  glRule("anthropic-admin-api-key", /\b(sk-ant-admin01-[A-Za-z0-9_-]{93}AA)(?:[\x60'"\s;]|\\[nr]|$)/g, { secretGroup:1, keywords:["sk-ant-admin01"] }),
+  glRule("anthropic-api-key", /\b(sk-ant-api03-[A-Za-z0-9_-]{93}AA)(?:[\x60'"\s;]|\\[nr]|$)/g, { secretGroup:1, keywords:["sk-ant-api03"] }),
+  glRule("artifactory-api-key", /\b(AKCp[A-Za-z0-9]{69})\b/g, { secretGroup:1, entropy:4.5, keywords:["akcp"] }),
+  glRule("artifactory-reference-token", /\b(cmVmd[A-Za-z0-9]{59})\b/g, { secretGroup:1, entropy:4.5, keywords:["cmvmd"] }),
+  glRule("aws-access-token", /\b((?:A3T[A-Z0-9]|AKIA|ASIA|ABIA|ACCA)[A-Z2-7]{16})\b/g, { secretGroup:1, entropy:3, keywords:["a3t","akia","asia","abia","acca"], allowRegexes:[/.+EXAMPLE$/] }),
+  glRule("aws-bedrock-long-lived", /\b(ABSK[A-Za-z0-9+/]{109,269}={0,2})(?:[\x60'"\s;]|\\[nr]|$)/g, { secretGroup:1, entropy:3, keywords:["absk"] }),
+  glRule("aws-bedrock-short-lived", /(bedrock-api-key-YmVkcm9jay5hbWF6b25hd3MuY29t)/g, { secretGroup:1, entropy:3, keywords:["bedrock-api-key-"] }),
+  glRule("azure-ad-client-secret", /(?:^|[\\'"`\s>=:(,)])([A-Za-z0-9_~.]{3}\dQ~[A-Za-z0-9_~.-]{31,34})(?:$|[\\'"`\s<),])/g, { secretGroup:1, entropy:3, keywords:["q~"] }),
+  glRule("clickhouse-cloud-api-secret-key", /\b(4b1d[A-Za-z0-9]{38})\b/g, { secretGroup:1, entropy:3, keywords:["4b1d"] }),
+  glRule("clojars-api-token", /(CLOJARS_[A-Za-z0-9]{60})/gi, { secretGroup:1, entropy:2, keywords:["clojars_"] }),
+  glRule("databricks-api-token", /\b(dapi[a-f0-9]{32}(?:-\d)?)(?:[\x60'"\s;]|\\[nr]|$)/gi, { secretGroup:1, entropy:3, keywords:["dapi"] }),
+  glRule("defined-networking-api-token", /\b(dnkey-[A-Za-z0-9=_-]{26}-[A-Za-z0-9=_-]{52})\b/gi, { secretGroup:1, keywords:["dnkey"] }),
+  glRule("digitalocean-access-token", /\b(doo_v1_[a-f0-9]{64})(?:[\x60'"\s;]|\\[nr]|$)/gi, { secretGroup:1, entropy:3, keywords:["doo_v1_"] }),
+  glRule("digitalocean-pat", /\b(dop_v1_[a-f0-9]{64})(?:[\x60'"\s;]|\\[nr]|$)/gi, { secretGroup:1, entropy:3, keywords:["dop_v1_"] }),
+  glRule("digitalocean-refresh-token", /\b(dor_v1_[a-f0-9]{64})(?:[\x60'"\s;]|\\[nr]|$)/gi, { secretGroup:1, keywords:["dor_v1_"] }),
+  glRule("doppler-api-token", /(dp\.pt\.[A-Za-z0-9]{43})/gi, { secretGroup:1, entropy:2, keywords:["dp.pt."] }),
+  glRule("dropbox-short-lived-api-token", /\b(sl\.[A-Za-z0-9=_-]{135})\b/gi, { secretGroup:1, keywords:["sl."] }),
+  glRule("flutterwave-encryption-key", /(FLWSECK_TEST-[A-H0-9]{12})/gi, { secretGroup:1, entropy:2, keywords:["flwseck_test"] }),
+  glRule("flutterwave-public-key", /(FLWPUBK_TEST-[A-H0-9]{32}-X)/gi, { secretGroup:1, entropy:2, keywords:["flwpubk_test"] }),
+  glRule("flutterwave-secret-key", /(FLWSECK_TEST-[A-H0-9]{32}-X)/gi, { secretGroup:1, entropy:2, keywords:["flwseck_test"] }),
+  glRule("flyio-access-token", /\b((?:fo1_[\w-]{43}|fm1[ar]_[A-Za-z0-9+/]{100,}={0,3}|fm2_[A-Za-z0-9+/]{100,}={0,3}))(?:[\x60'"\s;]|\\[nr]|$)/g, { secretGroup:1, entropy:4, keywords:["fo1_","fm1","fm2_"] }),
+  glRule("frameio-api-token", /(fio-u-[A-Za-z0-9\-_=]{64})/gi, { secretGroup:1, keywords:["fio-u-"] }),
+  glRule("gcp-api-key", /\b(AIza[\w-]{35})(?:[\x60'"\s;]|\\[nr]|$)/g, { secretGroup:1, entropy:4, keywords:["aiza"], allowRegexes:[/^AIzaSyabcdefghijklmnopqrstuvwxyz1234567$/] }),
+  glRule("github-classic-token", /\b(gh[pousr]_[A-Za-z0-9]{36,255})\b/g, { secretGroup:1, keywords:["ghp_","gho_","ghu_","ghs_","ghr_"] }),
+  glRule("github-fine-grained-pat", /\b(github_pat_[A-Za-z0-9_]{70,255})\b/g, { secretGroup:1, keywords:["github_pat_"] }),
+  glRule("gitlab-deploy-token", /(gldt-[0-9A-Za-z_-]{20})/g, { secretGroup:1, entropy:3, keywords:["gldt-"] }),
+  glRule("gitlab-feature-flag-client-token", /(glffct-[0-9A-Za-z_-]{20})/g, { secretGroup:1, entropy:3, keywords:["glffct-"] }),
+  glRule("gitlab-feed-token", /(glft-[0-9A-Za-z_-]{20})/g, { secretGroup:1, entropy:3, keywords:["glft-"] }),
+  glRule("gitlab-incoming-mail-token", /(glimt-[0-9A-Za-z_-]{25})/g, { secretGroup:1, entropy:3, keywords:["glimt-"] }),
+  glRule("gitlab-kubernetes-agent-token", /(glagent-[0-9A-Za-z_-]{50})/g, { secretGroup:1, entropy:3, keywords:["glagent-"] }),
+  glRule("gitlab-oauth-app-secret", /(gloas-[0-9A-Za-z_-]{64})/g, { secretGroup:1, entropy:3, keywords:["gloas-"] }),
+  glRule("gitlab-pat", /(glpat-[\w-]{20})/g, { secretGroup:1, entropy:3, keywords:["glpat-"] }),
+  glRule("gitlab-pat-routable", /\b(glpat-[0-9A-Za-z_-]{27,300}\.[0-9a-z]{9})\b/g, { secretGroup:1, entropy:4, keywords:["glpat-"] }),
+  glRule("gitlab-ptt", /(glptt-[0-9a-f]{40})/g, { secretGroup:1, entropy:3, keywords:["glptt-"] }),
+  glRule("gitlab-rrt", /(GR1348941[\w-]{20})/g, { secretGroup:1, entropy:3, keywords:["gr1348941"] }),
+  glRule("gitlab-scim-token", /(glsoat-[0-9A-Za-z_-]{20})/g, { secretGroup:1, entropy:3, keywords:["glsoat-"] }),
+  glRule("gitlab-session-cookie", /(_gitlab_session=[0-9a-z]{32})/g, { secretGroup:1, entropy:3, keywords:["_gitlab_session="] }),
+  glRule("grafana-api-key", /\b(eyJrIjoi[A-Za-z0-9]{70,400}={0,3})(?:[\x60'"\s;]|\\[nr]|$)/gi, { secretGroup:1, entropy:3, keywords:["eyjrijoi"] }),
+  glRule("grafana-cloud-api-token", /\b(glc_[A-Za-z0-9+/]{32,400}={0,3})(?:[\x60'"\s;]|\\[nr]|$)/gi, { secretGroup:1, entropy:3, keywords:["glc_"] }),
+  glRule("grafana-service-account-token", /\b(glsa_[A-Za-z0-9]{32}_[A-Fa-f0-9]{8})(?:[\x60'"\s;]|\\[nr]|$)/gi, { secretGroup:1, entropy:3, keywords:["glsa_"] }),
+  glRule("harness-api-key", /\b((?:pat|sat)\.[A-Za-z0-9_-]{22}\.[A-Za-z0-9]{24}\.[A-Za-z0-9]{20})\b/g, { secretGroup:1, keywords:["pat.","sat."] }),
+  glRule("hashicorp-tf-api-token", /\b([a-z0-9]{14}\.atlasv1\.[a-z0-9\-_=]{60,70})\b/gi, { secretGroup:1, entropy:3.5, keywords:["atlasv1"] }),
+  glRule("heroku-api-key-v2", /\b(HRKU-AA[0-9A-Za-z_-]{58})(?:[\x60'"\s;]|\\[nr]|$)/g, { secretGroup:1, entropy:4, keywords:["hrku-aa"] }),
+  glRule("huggingface-access-token", /\b(hf_[a-z]{34})(?:[\x60'"\s;]|\\[nr]|$)/gi, { secretGroup:1, entropy:2, keywords:["hf_"] }),
+  glRule("huggingface-organization-api-token", /\b(api_org_[a-z]{34})(?:[\x60'"\s;]|\\[nr]|$)/gi, { secretGroup:1, entropy:2, keywords:["api_org_"] }),
+  glRule("infracost-api-token", /\b(ico-[A-Za-z0-9]{32})(?:[\x60'"\s;]|\\[nr]|$)/g, { secretGroup:1, entropy:3, keywords:["ico-"] }),
+  glRule("intra42-client-secret", /\b(s-s4t2(?:ud|af)-[a-f0-9]{64})(?:[\x60'"\s;]|\\[nr]|$)/gi, { secretGroup:1, entropy:3, keywords:["s-s4t2ud-","s-s4t2af-"] }),
+  glRule("jwt-compact-broad", /\b(eyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{16,})\b/g, { secretGroup:1, entropy:3 }),
+  glRule("linear-api-key", /(lin_api_[A-Za-z0-9]{40})/gi, { secretGroup:1, entropy:2, keywords:["lin_api_"] }),
+  glRule("mailgun-private-api-token", /\b(key-[a-f0-9]{32})\b/gi, { secretGroup:1, keywords:["key-"] }),
+  glRule("microsoft-teams-webhook", /(https:\/\/[a-z0-9]+\.webhook\.office\.com\/webhookb2\/[a-z0-9]{8}-(?:[a-z0-9]{4}-){3}[a-z0-9]{12}@[a-z0-9]{8}-(?:[a-z0-9]{4}-){3}[a-z0-9]{12}\/IncomingWebhook\/[a-z0-9]{32}\/[a-z0-9]{8}-(?:[a-z0-9]{4}-){3}[a-z0-9]{12})/gi, { secretGroup:1, keywords:["webhook.office.com","incomingwebhook"] }),
+  glRule("new-relic-browser-api-token", /\b(NRJS-[a-f0-9]{19})\b/gi, { secretGroup:1, keywords:["nrjs-"] }),
+  glRule("new-relic-user-api-key", /\b(NRAK-[a-z0-9]{27})\b/gi, { secretGroup:1, keywords:["nrak"] }),
+  glRule("notion-api-token", /\b(ntn_[0-9]{11}[A-Za-z0-9]{35})(?:[\x60'"\s;]|\\[nr]|$)/g, { secretGroup:1, entropy:4, keywords:["ntn_"] }),
+  glRule("npm-access-token", /\b(npm_[a-z0-9]{36})(?:[\x60'"\s;]|\\[nr]|$)/gi, { secretGroup:1, entropy:2, keywords:["npm_"] }),
+  glRule("openshift-user-token", /\b(sha256~[\w-]{43})(?:[^\w-]|$)/g, { secretGroup:1, entropy:3.5, keywords:["sha256~"] }),
+  glRule("openai-api-key", /\b(sk-(?:proj-)?[A-Za-z0-9_-]{20,200})\b/g, { secretGroup:1, entropy:3, keywords:["sk-"] }),
+  glRule("perplexity-api-key", /\b(pplx-[A-Za-z0-9]{48})(?:[\x60'"\s;]|\\[nr]|$|\b)/g, { secretGroup:1, entropy:4, keywords:["pplx-"] }),
+  glRule("planetscale-api-token", /\b(pscale_tkn_[\w=.-]{32,64})(?:[\x60'"\s;]|\\[nr]|$)/gi, { secretGroup:1, entropy:3, keywords:["pscale_tkn_"] }),
+  glRule("planetscale-oauth-token", /\b(pscale_oauth_[\w=.-]{32,64})(?:[\x60'"\s;]|\\[nr]|$)/g, { secretGroup:1, entropy:3, keywords:["pscale_oauth_"] }),
+  glRule("planetscale-password", /\b(pscale_pw_[\w=.-]{32,64})(?:[\x60'"\s;]|\\[nr]|$)/gi, { secretGroup:1, entropy:3, keywords:["pscale_pw_"] }),
+  glRule("postman-api-token", /\b(PMAK-[a-f0-9]{24}-[a-f0-9]{34})(?:[\x60'"\s;]|\\[nr]|$)/gi, { secretGroup:1, entropy:3, keywords:["pmak-"] }),
+  glRule("prefect-api-token", /\b(pnu_[A-Za-z0-9]{36})(?:[\x60'"\s;]|\\[nr]|$)/g, { secretGroup:1, entropy:2, keywords:["pnu_"] }),
+  glRule("private-key", /(-----BEGIN[ A-Z0-9_-]{0,100}PRIVATE KEY(?: BLOCK)?-----[\s\S-]{64,}?KEY(?: BLOCK)?-----)/gi, { secretGroup:1, keywords:["-----begin"] }),
+  glRule("pulumi-api-token", /\b(pul-[a-f0-9]{40})(?:[\x60'"\s;]|\\[nr]|$)/g, { secretGroup:1, entropy:2, keywords:["pul-"] }),
+  glRule("pypi-upload-token", /(pypi-AgEIcHlwaS5vcmc[\w-]{50,1000})/g, { secretGroup:1, entropy:3, keywords:["pypi-ageichlwas5vcmc"] }),
+  glRule("readme-api-token", /\b(rdme_[a-z0-9]{70})(?:[\x60'"\s;]|\\[nr]|$)/g, { secretGroup:1, entropy:2, keywords:["rdme_"] }),
+  glRule("rubygems-api-token", /\b(rubygems_[a-f0-9]{48})(?:[\x60'"\s;]|\\[nr]|$)/g, { secretGroup:1, entropy:2, keywords:["rubygems_"] }),
+  glRule("scalingo-api-token", /\b(tk-us-[\w-]{48})(?:[\x60'"\s;]|\\[nr]|$)/g, { secretGroup:1, entropy:2, keywords:["tk-us-"] }),
+  glRule("sendgrid-api-token", /\b(SG\.[A-Za-z0-9=_\-.]{66})(?:[\x60'"\s;]|\\[nr]|$)/gi, { secretGroup:1, entropy:2, keywords:["sg."] }),
+  glRule("sendinblue-api-token", /\b(xkeysib-[a-f0-9]{64}-[a-z0-9]{16})(?:[\x60'"\s;]|\\[nr]|$)/gi, { secretGroup:1, entropy:2, keywords:["xkeysib-"] }),
+  glRule("sentry-org-token", /\b(sntrys_eyJpYXQiO[A-Za-z0-9+/]{10,200}(?:LCJyZWdpb25fdXJs|InJlZ2lvbl91cmwi|cmVnaW9uX3VybCI6)[A-Za-z0-9+/]{10,200}={0,2}_[A-Za-z0-9+/]{43})(?:[^A-Za-z0-9+/]|$)/g, { secretGroup:1, entropy:4.5, keywords:["sntrys_eyjpyxqio"] }),
+  glRule("sentry-user-token", /\b(sntryu_[a-f0-9]{64})(?:[\x60'"\s;]|\\[nr]|$)/g, { secretGroup:1, entropy:3.5, keywords:["sntryu_"] }),
+  glRule("settlemint-application-access-token", /\b(sm_aat_[A-Za-z0-9]{16})(?:[\x60'"\s;]|\\[nr]|$)/g, { secretGroup:1, entropy:3, keywords:["sm_aat"] }),
+  glRule("settlemint-personal-access-token", /\b(sm_pat_[A-Za-z0-9]{16})(?:[\x60'"\s;]|\\[nr]|$)/g, { secretGroup:1, entropy:3, keywords:["sm_pat"] }),
+  glRule("settlemint-service-access-token", /\b(sm_sat_[A-Za-z0-9]{16})(?:[\x60'"\s;]|\\[nr]|$)/g, { secretGroup:1, entropy:3, keywords:["sm_sat"] }),
+  glRule("shippo-api-token", /\b(shippo_(?:live|test)_[A-Fa-f0-9]{40})(?:[\x60'"\s;]|\\[nr]|$)/g, { secretGroup:1, entropy:2, keywords:["shippo_"] }),
+  glRule("shopify-access-token", /(shpat_[A-Fa-f0-9]{32})/g, { secretGroup:1, entropy:2, keywords:["shpat_"] }),
+  glRule("shopify-custom-access-token", /(shpca_[A-Fa-f0-9]{32})/g, { secretGroup:1, entropy:2, keywords:["shpca_"] }),
+  glRule("shopify-private-app-access-token", /(shppa_[A-Fa-f0-9]{32})/g, { secretGroup:1, entropy:2, keywords:["shppa_"] }),
+  glRule("shopify-shared-secret", /(shpss_[A-Fa-f0-9]{32})/g, { secretGroup:1, entropy:2, keywords:["shpss_"] }),
+  glRule("slack-app-token", /(xapp-\d-[A-Z0-9]+-\d+-[a-z0-9]+)/gi, { secretGroup:1, entropy:2, keywords:["xapp"] }),
+  glRule("slack-bot-token", /(xoxb-[0-9]{10,13}-[0-9]{10,13}[A-Za-z0-9-]*)/g, { secretGroup:1, entropy:3, keywords:["xoxb"] }),
+  glRule("slack-config-access-token", /(xoxe.xox[bp]-\d-[A-Z0-9]{163,166})/gi, { secretGroup:1, entropy:2, keywords:["xoxe.xoxb-","xoxe.xoxp-"] }),
+  glRule("slack-config-refresh-token", /(xoxe-\d-[A-Z0-9]{146})/gi, { secretGroup:1, entropy:2, keywords:["xoxe-"] }),
+  glRule("slack-legacy-bot-token", /(xoxb-[0-9]{8,14}-[A-Za-z0-9]{18,26})/g, { secretGroup:1, entropy:2, keywords:["xoxb"] }),
+  glRule("slack-legacy-token", /(xox[os]-\d+-\d+-\d+-[A-Fa-f\d]+)/g, { secretGroup:1, entropy:2, keywords:["xoxo","xoxs"] }),
+  glRule("slack-legacy-workspace-token", /(xox[ar]-(?:\d-)?[0-9A-Za-z]{8,48})/g, { secretGroup:1, entropy:2, keywords:["xoxa","xoxr"] }),
+  glRule("slack-user-token", /(xox[pe](?:-[0-9]{10,13}){3}-[A-Za-z0-9-]{28,34})/g, { secretGroup:1, entropy:2, keywords:["xoxp-","xoxe-"] }),
+  glRule("slack-webhook-url", /((?:https?:\/\/)?hooks\.slack\.com\/(?:services|workflows|triggers)\/[A-Za-z0-9+/]{43,56})/g, { secretGroup:1, keywords:["hooks.slack.com"] }),
+  glRule("sourcegraph-access-token", /\b((?:sgp_(?:[A-Fa-f0-9]{16}|local)_[A-Fa-f0-9]{40}|sgp_[A-Fa-f0-9]{40}))(?:[\x60'"\s;]|\\[nr]|$)/g, { secretGroup:1, entropy:3, keywords:["sgp_","sourcegraph"] }),
+  glRule("square-access-token", /\b((?:EAAA|sq0atp-)[\w-]{22,60})(?:[\x60'"\s;]|\\[nr]|$)/g, { secretGroup:1, entropy:2, keywords:["sq0atp-","eaaa"] }),
+  glRule("square-secret", /\b(sq0csp-[A-Za-z0-9_-]{20,})\b/g, { secretGroup:1, entropy:2, keywords:["sq0csp-"] }),
+  glRule("stripe-access-token", /\b((?:sk|rk)_(?:test|live|prod)_[A-Za-z0-9]{10,99})(?:[\x60'"\s;]|\\[nr]|$)/g, { secretGroup:1, entropy:2, keywords:["sk_test","sk_live","sk_prod","rk_test","rk_live","rk_prod"] }),
+  glRule("twilio-api-key", /\b(SK[0-9A-Fa-f]{32})\b/g, { secretGroup:1, entropy:3, keywords:["sk"] }),
+  glRule("vault-batch-token", /\b(hvb\.[\w-]{138,300})(?:[\x60'"\s;]|\\[nr]|$)/g, { secretGroup:1, entropy:4, keywords:["hvb."] }),
+  glRule("vault-service-token", /\b((?:hvs\.[\w-]{90,120}|s\.[a-z0-9]{24}))(?:[\x60'"\s;]|\\[nr]|$)/gi, { secretGroup:1, entropy:3.5, keywords:["hvs.","s."], allowRegexes:[/^s\.[A-Za-z]{24}$/] }),
+  // Additional current upstream Gitleaks signatures that do not fit the generic assignment template.
+  glRule("adobe-client-secret", /\b(p8e-[A-Za-z0-9]{32})(?:[\x60'"\s;]|\\[nr]|$)/gi, { secretGroup:1, entropy:2, keywords:["p8e-"] }),
+  glRule("atlassian-api-token-routable", /\b(ATATT3[A-Za-z0-9_\-=]{186})(?:[\x60'"\s;]|\\[nr]|$)/g, { secretGroup:1, entropy:3.5, keywords:["atatt3"] }),
+  glRule("authress-service-client-access-key", /\b((?:sc|ext|scauth|authress)_[A-Za-z0-9]{5,30}\.[A-Za-z0-9]{4,6}\.acc[_-][A-Za-z0-9-]{10,32}\.[A-Za-z0-9+/_=-]{30,120})(?:[\x60'"\s;]|\\[nr]|$)/gi, { secretGroup:1, entropy:2, keywords:["sc_","ext_","scauth_","authress_"] }),
+  glRule("cloudflare-origin-ca-key", /\b(v1\.0-[a-f0-9]{24}-[a-f0-9]{146})(?:[\x60'"\s;]|\\[nr]|$)/gi, { secretGroup:1, entropy:2, keywords:["v1.0-","cloudflare"] }),
+  glRule("duffel-api-token", /(duffel_(?:test|live)_[A-Za-z0-9_\-=]{43})/gi, { secretGroup:1, entropy:2, keywords:["duffel_"] }),
+  glRule("dynatrace-api-token", /(dt0c01\.[A-Za-z0-9]{24}\.[A-Za-z0-9]{64})/gi, { secretGroup:1, entropy:4, keywords:["dt0c01."] }),
+  glRule("easypost-api-token", /\b(EZAK[A-Za-z0-9]{54})\b/gi, { secretGroup:1, entropy:2, keywords:["ezak"] }),
+  glRule("easypost-test-api-token", /\b(EZTK[A-Za-z0-9]{54})\b/gi, { secretGroup:1, entropy:2, keywords:["eztk"] }),
+  glRule("facebook-access-token", /\b(\d{15,16}(?:\||%)[A-Za-z0-9_-]{27,40})(?:[\x60'"\s;]|\\[nr]|$)/gi, { secretGroup:1, entropy:3 }),
+  glRule("facebook-page-access-token", /\b(EAA[MC][A-Za-z0-9]{100,})(?:[\x60'"\s;]|\\[nr]|$)/gi, { secretGroup:1, entropy:4, keywords:["eaam","eaac"] }),
+  glRule("freemius-secret-key", /["']secret_key["']\s*=>\s*["'](sk_\S{29})["']/gi, { secretGroup:1, keywords:["secret_key"] }),
+  glRule("gitlab-cicd-job-token", /(glcbt-[0-9A-Za-z]{1,5}_[0-9A-Za-z_-]{20})/g, { secretGroup:1, entropy:3, keywords:["glcbt-"] }),
+  glRule("gitlab-runner-authentication-token-routable", /\b(glrt-t\d_[0-9A-Za-z_-]{27,300}\.[0-9a-z]{9})\b/g, { secretGroup:1, entropy:4, keywords:["glrt-"] }),
+  glRule("jwt", /\b(ey[A-Za-z0-9]{17,}\.ey[A-Za-z0-9/_-]{17,}\.(?:[A-Za-z0-9/_-]{10,}={0,2})?)(?:[\x60'"\s;]|\\[nr]|$)/g, { secretGroup:1, entropy:3, keywords:["ey"] }),
+  glRule("jwt-base64", /\b(ZXlK[A-Za-z0-9/_+\-\r\n]{40,}={0,2})/g, { secretGroup:1, entropy:2, keywords:["zxlk"] }),
+  glRule("maxmind-license-key", /\b([A-Za-z0-9]{6}_[A-Za-z0-9]{29}_mmk)(?:[\x60'"\s;]|\\[nr]|$)/g, { secretGroup:1, entropy:4, keywords:["_mmk"] }),
+  glRule("octopus-deploy-api-key", /\b(API-[A-Z0-9]{26})(?:[\x60'"\s;]|\\[nr]|$)/g, { secretGroup:1, entropy:3, keywords:["api-"] }),
+  glRule("sidekiq-sensitive-url", /\bhttps?:\/\/([a-f0-9]{8}:[a-f0-9]{8})@(?:gems\.contribsys\.com|enterprise\.contribsys\.com)(?:[\/#?:]|$)/gi, { secretGroup:1, keywords:["gems.contribsys.com","enterprise.contribsys.com"] }),
+  // curl's upstream RE2 rule has several alternate capture groups. Split it into
+  // JS-friendly rules while preserving the actual credential as secretGroup 1.
+  glRule("curl-auth-header-basic", /\bcurl\b[\s\S]{0,1000}?(?:-H|--header)(?:=|\s{0,5})["']?Authorization:\s{0,5}Basic\s+([A-Za-z0-9+/]{8,}={0,3})/gi, { secretGroup:1, entropy:2.75, keywords:["curl"] }),
+  glRule("curl-auth-header-bearer", /\bcurl\b[\s\S]{0,1000}?(?:-H|--header)(?:=|\s{0,5})["']?Authorization:\s{0,5}(?:Bearer|(?:Api-)?Token)\s+([\w=~@.+/-]{8,})/gi, { secretGroup:1, entropy:2.75, keywords:["curl"] }),
+  glRule("curl-api-header", /\bcurl\b[\s\S]{0,1000}?(?:-H|--header)(?:=|\s{0,5})["']?(?:(?:X-(?:[a-z]+-)?)?(?:Api-?)?(?:Key|Token)):\s{0,5}([\w=~@.+/-]{8,})/gi, { secretGroup:1, entropy:2.75, keywords:["curl"] }),
+  glRule("curl-auth-user", /\bcurl\b[\s\S]{0,1000}?(?:-u|--user)(?:=|\s{0,5})["']?([^\s"']{3,}:[^\s"']{3,})/gi, { secretGroup:1, entropy:2, keywords:["curl"], allowRegexes:[/^[^:]+:(?:change(?:it|me)|pass(?:word)?|pwd|test|token|\*+|x+)$/i] }),
+  // Path-conditioned upstream Kubernetes rule: in an LLM body there is no file
+  // path, so content matching is intentionally executed regardless of path.
+  glRule("kubernetes-secret-yaml", /\bkind:\s*["']?secret\b[\s\S]{0,300}?\bdata:[\s\S]{0,150}?\b[\w.-]+:\s*["']?([A-Za-z0-9+/]{10,}={0,3})["']?/gi, { secretGroup:1, keywords:["secret","data:"] }),
+  glRule("nuget-config-password", /<add\s+key="(?:ClearText)?Password"\s*value="(.{8,})"\s*\/>/gi, { secretGroup:1, entropy:1, keywords:["<add key="] , allowRegexes:[/^33f!!lloppa$/i,/^hal\+9ooo_da!sY$/i,/^%\S.*%$/] }),
+  glRule("sourcegraph-bare-access-token", /\b([a-f0-9]{40})\b/gi, { secretGroup:1, entropy:3, keywords:["sourcegraph"] }),
 ];
+
+const GITLEAK_ASSIGNMENT_RULES = [
+  assignmentRule("adafruit-api-key", ["adafruit"], "[a-z0-9_-]{32}"),
+  assignmentRule("adobe-client-id", ["adobe"], "[a-f0-9]{32}", { entropy:2 }),
+  assignmentRule("airtable-api-key", ["airtable"], "[a-z0-9]{17}"),
+  assignmentRule("algolia-api-key", ["algolia"], "[a-z0-9]{32}"),
+  assignmentRule("alibaba-secret-key", ["alibaba"], "[a-z0-9]{30}", { entropy:2 }),
+  assignmentRule("asana-client-id", ["asana"], "[0-9]{16}"),
+  assignmentRule("asana-client-secret", ["asana"], "[a-z0-9]{32}"),
+  assignmentRule("atlassian-api-token", ["atlassian","confluence","jira"], "[a-z0-9]{24}", { entropy:3.5, keySource:"atlassian|confluence|jira" }),
+  assignmentRule("beamer-api-token", ["beamer"], "b_[a-z0-9=_-]{44}"),
+  assignmentRule("bitbucket-client-id", ["bitbucket"], "[a-z0-9]{32}"),
+  assignmentRule("bitbucket-client-secret", ["bitbucket"], "[a-z0-9=_-]{64}"),
+  assignmentRule("bittrex-access-key", ["bittrex"], "[a-z0-9]{32}"),
+  assignmentRule("bittrex-secret-key", ["bittrex"], "[a-z0-9]{32}"),
+  assignmentRule("cisco-meraki-api-key", ["meraki"], "[0-9a-f]{40}", { entropy:3 }),
+  assignmentRule("cloudflare-api-key", ["cloudflare"], "[a-z0-9_-]{40}", { entropy:2 }),
+  assignmentRule("cloudflare-global-api-key", ["cloudflare"], "[a-f0-9]{37}", { entropy:2 }),
+  assignmentRule("etsy-access-token", ["etsy"], "[a-z0-9]{24}", { entropy:3 }),
+  assignmentRule("facebook-secret", ["facebook"], "[a-f0-9]{32}", { entropy:3 }),
+  assignmentRule("fastly-api-token", ["fastly"], "[a-z0-9=_-]{32}"),
+  assignmentRule("codecov-access-token", ["codecov"], "[a-z0-9]{32}"),
+  assignmentRule("cohere-api-token", ["cohere","CO_API_KEY"], "[A-Za-z0-9]{40}", { entropy:4 }),
+  assignmentRule("coinbase-access-token", ["coinbase"], "[a-z0-9_-]{64}"),
+  assignmentRule("confluent-access-token", ["confluent"], "[a-z0-9]{16}"),
+  assignmentRule("confluent-secret-key", ["confluent"], "[a-z0-9]{64}"),
+  assignmentRule("contentful-delivery-api-token", ["contentful"], "[a-z0-9=_-]{43}"),
+  assignmentRule("datadog-access-token", ["datadog"], "[a-z0-9]{40}"),
+  assignmentRule("discord-api-token", ["discord"], "[a-f0-9]{64}"),
+  assignmentRule("discord-client-id", ["discord"], "[0-9]{18}", { entropy:2 }),
+  assignmentRule("discord-client-secret", ["discord"], "[a-z0-9=_-]{32}", { entropy:2 }),
+  assignmentRule("droneci-access-token", ["droneci"], "[a-z0-9]{32}"),
+  assignmentRule("dropbox-api-token", ["dropbox"], "[a-z0-9]{15}"),
+  assignmentRule("dropbox-long-lived-api-token", ["dropbox"], "[a-z0-9]{11}AAAAAAAAAA[a-z0-9=_-]{43}"),
+  assignmentRule("finicity-api-token", ["finicity"], "[a-f0-9]{32}"),
+  assignmentRule("finicity-client-secret", ["finicity"], "[a-z0-9]{20}"),
+  assignmentRule("finnhub-access-token", ["finnhub"], "[a-z0-9]{20}"),
+  assignmentRule("flickr-access-token", ["flickr"], "[a-z0-9]{32}"),
+  assignmentRule("freshbooks-access-token", ["freshbooks"], "[a-z0-9]{64}"),
+  assignmentRule("hashicorp-tf-password", ["administrator_login_password","password"], "[a-z0-9=_-]{8,20}", { entropy:2, keySource:"administrator_login_password|password" }),
+  assignmentRule("heroku-api-key", ["heroku"], "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"),
+  assignmentRule("hubspot-api-key", ["hubspot"], "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"),
+  assignmentRule("intercom-api-key", ["intercom"], "[a-z0-9=_-]{60}"),
+  assignmentRule("gitter-access-token", ["gitter"], "[a-z0-9_-]{40}"),
+  assignmentRule("gocardless-api-token", ["gocardless","live_"], "live_[a-z0-9_\\-=]{40}", { keySource:"gocardless" }),
+  assignmentRule("jfrog-api-key", ["jfrog","artifactory","bintray","xray"], "[a-z0-9]{73}", { keySource:"jfrog|artifactory|bintray|xray" }),
+  assignmentRule("jfrog-identity-token", ["jfrog","artifactory","bintray","xray"], "[a-z0-9]{64}", { keySource:"jfrog|artifactory|bintray|xray" }),
+  assignmentRule("kraken-access-token", ["kraken"], "[a-z0-9/=_+\\-]{80,90}"),
+  assignmentRule("kucoin-access-token", ["kucoin"], "[a-f0-9]{24}"),
+  assignmentRule("kucoin-secret-key", ["kucoin"], "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"),
+  assignmentRule("launchdarkly-access-token", ["launchdarkly"], "[a-z0-9=_-]{40}"),
+  assignmentRule("linear-client-secret", ["linear"], "[a-f0-9]{32}", { entropy:2 }),
+  assignmentRule("linkedin-client-id", ["linkedin","linked_in","linked-in"], "[a-z0-9]{14}", { entropy:2, keySource:"linked[_-]?in" }),
+  assignmentRule("linkedin-client-secret", ["linkedin","linked_in","linked-in"], "[a-z0-9]{16}", { entropy:2, keySource:"linked[_-]?in" }),
+  assignmentRule("lob-api-key", ["lob","test_","live_"], "(?:live|test)_[a-f0-9]{35}", { keySource:"lob" }),
+  assignmentRule("lob-pub-api-key", ["lob","test_pub","live_pub"], "(?:test|live)_pub_[a-f0-9]{31}", { keySource:"lob" }),
+  assignmentRule("looker-client-id", ["looker"], "[a-z0-9]{20}"),
+  assignmentRule("looker-client-secret", ["looker"], "[a-z0-9]{24}"),
+  assignmentRule("mailchimp-api-key", ["mailchimp","MailchimpSDK.initialize"], "[a-f0-9]{32}-us\\d{2}", { keySource:"MailchimpSDK\\.initialize|mailchimp" }),
+  assignmentRule("messagebird-client-id", ["messagebird","message-bird","message_bird"], "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", { keySource:"message[_-]?bird" }),
+  assignmentRule("netlify-access-token", ["netlify"], "[a-z0-9=_-]{40,46}"),
+  assignmentRule("new-relic-insert-key", ["new-relic","newrelic","new_relic","nrii-"], "NRII-[a-z0-9-]{32}", { keySource:"new-relic|newrelic|new_relic" }),
+  assignmentRule("new-relic-user-api-id", ["new-relic","newrelic","new_relic"], "[a-z0-9]{64}", { keySource:"new-relic|newrelic|new_relic" }),
+  assignmentRule("nytimes-access-token", ["nytimes","new-york-times","newyorktimes"], "[a-z0-9=_-]{32}", { keySource:"nytimes|new-york-times|newyorktimes" }),
+  assignmentRule("okta-access-token", ["okta"], "00[\\w=-]{40}", { entropy:4 }),
+  assignmentRule("plaid-api-token", ["plaid"], "access-(?:sandbox|development|production)-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"),
+  assignmentRule("plaid-client-id", ["plaid"], "[a-z0-9]{24}", { entropy:3.5 }),
+  assignmentRule("plaid-secret-key", ["plaid"], "[a-z0-9]{30}", { entropy:3.5 }),
+  assignmentRule("privateai-api-token", ["privateai","private_ai","private-ai"], "[a-z0-9]{32}", { entropy:3, keySource:"private[_-]?ai" }),
+  assignmentRule("rapidapi-access-token", ["rapidapi"], "[a-z0-9_-]{50}"),
+  assignmentRule("sendbird-access-id", ["sendbird"], "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"),
+  assignmentRule("sendbird-access-token", ["sendbird"], "[a-f0-9]{40}"),
+  assignmentRule("sentry-access-token", ["sentry"], "[a-f0-9]{64}", { entropy:3 }),
+  assignmentRule("snyk-api-token", ["snyk"], "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", { keySource:"snyk[_.-]?(?:(?:api|oauth)[_.-]?)?(?:key|token)" }),
+  assignmentRule("sonar-api-token", ["sonar"], "(?:squ_|sqp_|sqa_)?[a-z0-9=_-]{40}", { keySource:"sonar[_.-]?(?:login|token)" }),
+  assignmentRule("squarespace-access-token", ["squarespace"], "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"),
+  assignmentRule("sidekiq-secret", ["bundle_enterprise__contribsys__com","bundle_gems__contribsys__com"], "[a-f0-9]{8}:[a-f0-9]{8}", { keySource:"BUNDLE_ENTERPRISE__CONTRIBSYS__COM|BUNDLE_GEMS__CONTRIBSYS__COM" }),
+  assignmentRule("sumologic-access-id", ["sumo"], "su[A-Za-z0-9]{12}", { entropy:3 }),
+  assignmentRule("sumologic-access-token", ["sumo"], "[a-z0-9]{64}", { entropy:3 }),
+  assignmentRule("telegram-bot-api-token", ["telegr","telegram"], "[0-9]{5,16}:A[a-z0-9_-]{34}", { keySource:"telegr(?:am)?" }),
+  assignmentRule("travisci-access-token", ["travis"], "[a-z0-9]{22}"),
+  assignmentRule("twitch-api-token", ["twitch"], "[a-z0-9]{30}"),
+  assignmentRule("twitter-access-secret", ["twitter"], "[a-z0-9]{45}"),
+  assignmentRule("twitter-access-token", ["twitter"], "[0-9]{15,25}-[A-Za-z0-9]{20,40}"),
+  assignmentRule("twitter-api-key", ["twitter"], "[a-z0-9]{25}"),
+  assignmentRule("twitter-api-secret", ["twitter"], "[a-z0-9]{50}"),
+  assignmentRule("twitter-bearer-token", ["twitter"], "A{22}[A-Za-z0-9%]{80,100}"),
+  assignmentRule("typeform-api-token", ["typeform","tfp_"], "tfp_[a-z0-9_.=-]{59}", { keywords:["tfp_"] }),
+  assignmentRule("yandex-access-token", ["yandex"], "t1\\.[A-Za-z0-9_-]+={0,2}\\.[A-Za-z0-9_-]{86}={0,2}"),
+  assignmentRule("yandex-api-key", ["yandex"], "AQVN[A-Za-z0-9_-]{35,38}"),
+  assignmentRule("yandex-aws-access-token", ["yandex"], "YC[A-Za-z0-9_-]{38}"),
+  assignmentRule("zendesk-secret-key", ["zendesk"], "[a-z0-9]{40}"),
+];
+
+const GENERIC_GITLEAK_STOPWORDS = [
+  // Privacy proxy bias: retain only high-confidence placeholder words here.
+  // The upstream global stopword list is broader, but false negatives are more
+  // damaging for this use case than a modest increase in false positives.
+  "example", "sample", "dummy", "placeholder", "changeme",
+  "localhost", "undefined", "null", "true", "false",
+];
+
+const GITLEAK_RULES = [
+  ...GITLEAK_DIRECT_RULES,
+  ...GITLEAK_ASSIGNMENT_RULES,
+  assignmentRule(
+    "generic-api-key",
+    ["access","auth","api","credential","creds","key","passwd","password","secret","token"],
+    "(?:[\\w.=-]{10,150}|[a-z0-9][a-z0-9+/]{11,}={0,3})",
+    {
+      entropy: 3.5,
+      keySource: "access|auth|api|credential|creds|key|passw(?:or)?d|secret|token",
+      allowRegexes: [/^[A-Za-z_.-]+$/],
+      stopwords: GENERIC_GITLEAK_STOPWORDS,
+    },
+  ),
+];
+
+export const GITLEAK_PORTABLE_RULE_COUNT = GITLEAK_RULES.length;
+
+function collectGitleakSpans(text) {
+  const out = [];
+  const lower = text.toLowerCase();
+  for (const rule of GITLEAK_RULES) {
+    if (rule.keywords.length && !rule.keywords.some((k) => lower.includes(k))) continue;
+    const re = rule.regex;
+    re.lastIndex = 0;
+    let m;
+    while ((m = re.exec(text))) {
+      if (!m[0].length) { re.lastIndex++; continue; }
+      const secret = rule.secretGroup ? m[rule.secretGroup] : m[0];
+      if (!secret) continue;
+      const relative = rule.secretGroup ? m[0].indexOf(secret) : 0;
+      if (relative < 0) continue;
+      if (rule.entropy && shannonEntropy(secret) < rule.entropy) continue;
+      const secretLower = secret.toLowerCase();
+      if (rule.stopwords.some((word) => secretLower.includes(word))) continue;
+      if (rule.allowRegexes.some((allow) => { allow.lastIndex = 0; return allow.test(secret); })) continue;
+      out.push({
+        start: m.index + relative,
+        end: m.index + relative + secret.length,
+        type: "gitleaks",
+        priority: 120,
+        ruleId: rule.id,
+      });
+    }
+  }
+  return out;
+}
+
 
 function collectRegexSpans(text, regex, type, priority, validator = null) {
   const out = [];
@@ -198,7 +476,7 @@ export function findSensitiveSpans(text, flags) {
     c.push(...collectRegexSpans(text, /(?<!\d)1[3-9]\d{9}(?!\d)/g, "phone", 88));
     c.push(...collectRegexSpans(text, /(?<!\d)\+(?:\d[ .()\-]?){7,14}\d(?!\d)/g, "phone", 88));
   }
-  if (flags.gitleaks) for (const re of GITLEAK_RULES) c.push(...collectRegexSpans(text, re, "gitleaks", 120));
+  if (flags.gitleaks) c.push(...collectGitleakSpans(text));
   if (flags.highEntropy) for (const b of tokenizeBlocks(text)) if (isHighEntropyBlock(b.value)) c.push({ start:b.start, end:b.end, type:"entropy", priority:10 });
 
   const candidates = c.filter((x) => !protectedSpans.some((p) => overlaps(x, p)));
@@ -223,6 +501,8 @@ export class RedactionContext {
     const digest = await crypto.subtle.digest("SHA-256", textEncoder.encode(raw + this.salt));
     const hex = Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2,"0")).join("");
     const token = TOKEN_PREFIX + hex + TOKEN_SUFFIX;
+    const collision = this.tokenToRaw.get(token);
+    if (collision !== undefined && collision !== raw) throw new Error("SHA-256 redaction token collision");
     this.rawToToken.set(raw, token); this.tokenToRaw.set(token, raw);
     return token;
   }
@@ -321,8 +601,16 @@ export function injectReductNotice(body, protocol) {
 
 function filteredRequestHeaders(headers) {
   const out = new Headers(headers);
-  for (const k of ["host","content-length","connection","transfer-encoding","keep-alive","proxy-authenticate","proxy-authorization","te","trailer","upgrade","accept-encoding",
-    "cf-connecting-ip","cf-ipcountry","cf-ray","x-forwarded-for","x-forwarded-proto","x-real-ip","forwarded","via"]) out.delete(k);
+  const exact = new Set([
+    "host","content-length","connection","transfer-encoding","keep-alive",
+    "proxy-authenticate","proxy-authorization","te","trailer","upgrade","accept-encoding",
+    "x-forwarded-for","x-forwarded-proto","x-real-ip","forwarded","via",
+    "cookie","cookie2"
+  ]);
+  for (const [name] of [...out]) {
+    const k = name.toLowerCase();
+    if (exact.has(k) || k.startsWith("cf-") || k.startsWith("sec-")) out.delete(name);
+  }
   return out;
 }
 
@@ -388,21 +676,36 @@ function serializeSseEvent(parsed, dataText) {
 }
 
 function getAt(obj, path) { let x=obj; for (let i=0;i<path.length-1;i++) x=x?.[path[i]]; return x; }
+function collectStringLeaves(value, basePath, channelPrefix, fields, local = []) {
+  if (!value || typeof value !== "object") return;
+  for (const [key, child] of Object.entries(value)) {
+    const next = local.concat(key);
+    if (typeof child === "string") {
+      // Metadata fields are not streamed user/model text and must not be coalesced.
+      if (["role","type","id","object","status","finish_reason","stop_reason"].includes(key)) continue;
+      fields.push({ path:basePath.concat(next), channel:`${channelPrefix}:${next.join(".")}` });
+    } else if (child && typeof child === "object") {
+      collectStringLeaves(child, basePath, channelPrefix, fields, next);
+    }
+  }
+}
+
 function streamFields(data, eventName="") {
   const fields=[];
   if (Array.isArray(data?.choices)) {
     data.choices.forEach((choice, ci) => {
-      if (typeof choice?.delta?.content === "string") fields.push({ path:["choices",ci,"delta","content"], channel:`chat:${choice.index ?? ci}:content` });
-      if (Array.isArray(choice?.delta?.tool_calls)) choice.delta.tool_calls.forEach((tc, ti) => {
-        if (typeof tc?.function?.arguments === "string") fields.push({ path:["choices",ci,"delta","tool_calls",ti,"function","arguments"], channel:`chat:${choice.index ?? ci}:tool:${tc.index ?? ti}:args` });
-      });
+      if (choice?.delta && typeof choice.delta === "object") {
+        collectStringLeaves(choice.delta,["choices",ci,"delta"],`chat:${choice.index ?? ci}:delta`,fields);
+      }
+      // Some compatible providers use a legacy text delta.
+      if (typeof choice?.text === "string") fields.push({ path:["choices",ci,"text"], channel:`chat:${choice.index ?? ci}:text` });
     });
   }
-  const typ = data?.type || eventName;
-  if (typeof data?.delta === "string" && /delta/i.test(typ || "")) fields.push({ path:["delta"], channel:`responses:${typ}:${data.output_index ?? ""}:${data.content_index ?? ""}:${data.item_id ?? ""}` });
-  if (data?.delta && typeof data.delta === "object") {
-    if (typeof data.delta.text === "string") fields.push({ path:["delta","text"], channel:`anthropic:${data.index ?? ""}:text` });
-    if (typeof data.delta.partial_json === "string") fields.push({ path:["delta","partial_json"], channel:`anthropic:${data.index ?? ""}:json` });
+  const typ = data?.type || eventName || "event";
+  if (typeof data?.delta === "string" && /delta/i.test(typ)) {
+    fields.push({ path:["delta"], channel:`responses:${typ}:${data.output_index ?? ""}:${data.content_index ?? ""}:${data.item_id ?? ""}` });
+  } else if (data?.delta && typeof data.delta === "object") {
+    collectStringLeaves(data.delta,["delta"],`delta:${typ}:${data.index ?? ""}`,fields);
   }
   return fields;
 }
@@ -459,27 +762,59 @@ class SseRestorer {
 }
 
 export function restoreSseStream(body, ctx) {
-  const reader=body.getReader(), decoder=new TextDecoder(), encoder=new TextEncoder(), restorer=new SseRestorer(ctx);
+  const reader=body.getReader();
+  const decoder=new TextDecoder();
+  const encoder=new TextEncoder();
+  const restorer=new SseRestorer(ctx);
   let buffer="";
+  let upstreamDone=false;
+  let restorerFinished=false;
+
+  function normalize() { buffer=buffer.replace(/\r\n/g,"\n"); }
+
   return new ReadableStream({
-    async start(controller) {
+    async pull(controller) {
       try {
         while (true) {
+          const idx=buffer.indexOf("\n\n");
+          if (idx >= 0) {
+            const raw=buffer.slice(0,idx);
+            buffer=buffer.slice(idx+2);
+            const produced=restorer.ingest(raw);
+            if (produced) { controller.enqueue(encoder.encode(produced)); return; }
+            continue;
+          }
+
+          if (upstreamDone) {
+            if (buffer.length) {
+              const raw=buffer; buffer="";
+              const produced=restorer.ingest(raw);
+              if (produced) { controller.enqueue(encoder.encode(produced)); return; }
+              continue;
+            }
+            if (!restorerFinished) {
+              restorerFinished=true;
+              const final=restorer.finish();
+              if (final) { controller.enqueue(encoder.encode(final)); return; }
+            }
+            controller.close();
+            return;
+          }
+
           const {done,value}=await reader.read();
-          if (done) break;
-          buffer += decoder.decode(value,{stream:true});
-          buffer = buffer.replace(/\r\n/g,"\n");
-          let idx;
-          while ((idx=buffer.indexOf("\n\n"))>=0) {
-            const raw=buffer.slice(0,idx); buffer=buffer.slice(idx+2);
-            const produced=restorer.ingest(raw); if (produced) controller.enqueue(encoder.encode(produced));
+          if (done) {
+            buffer += decoder.decode();
+            normalize();
+            upstreamDone=true;
+          } else {
+            buffer += decoder.decode(value,{stream:true});
+            normalize();
           }
         }
-        buffer += decoder.decode(); buffer=buffer.replace(/\r\n/g,"\n");
-        if (buffer.length) { const produced=restorer.ingest(buffer); if (produced) controller.enqueue(encoder.encode(produced)); }
-        const final=restorer.finish(); if (final) controller.enqueue(encoder.encode(final));
-        controller.close();
-      } catch (e) { controller.error(e); try { await reader.cancel(e); } catch {} }
+      } catch (e) {
+        controller.error(e);
+        try { await reader.cancel(e); } catch {}
+      }
     },
     async cancel(reason) { try { await reader.cancel(reason); } catch {} }
   });
