@@ -1,0 +1,88 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import {
+  parseFlags, parseProxyTarget, tokenizeBlocks, RedactionContext,
+  findSensitiveSpans, injectReductNotice, detectProtocol, redactJson
+} from "../worker.js";
+
+const all = {highEntropy:true,phone:true,secret:true,identity:true,bank:true,email:true,gitleaks:true};
+
+test("flags default to all and subsets are explicit", () => {
+  assert.deepEqual(parseFlags(""), all);
+  assert.deepEqual(parseFlags("eS"), {highEntropy:false,phone:false,secret:true,identity:false,bank:false,email:true,gitleaks:false});
+  assert.throws(() => parseFlags("EX"), /Unknown flag/);
+});
+
+test("route preserves upstream path and query", () => {
+  const t = parseProxyTarget("https://proxy.example/HPSE$https://api.openai.com/v1/responses?foo=a%20b&x=2");
+  assert.equal(t.upstream.toString(), "https://api.openai.com/v1/responses?foo=a%20b&x=2");
+  assert.equal(t.flags.email, true);
+  assert.equal(t.flags.bank, false);
+});
+
+test("lossless-style block offsets split on whitespace/special characters", () => {
+  assert.deepEqual(tokenizeBlocks("abc_def-123.foo"), [
+    {value:"abc",start:0,end:3}, {value:"def",start:4,end:7},
+    {value:"123",start:8,end:11}, {value:"foo",start:12,end:15}
+  ]);
+});
+
+test("email, phone, sk, bank and Chinese ID candidates", () => {
+  const sk = "sk-" + "A1".repeat(30);
+  // Valid Visa test number and valid PRC checksum example used only as synthetic test data.
+  const text = `a@example.com 13800138000 ${sk} 4111111111111111 11010519491231002X`;
+  const types = findSensitiveSpans(text, all).map(x => x.type);
+  assert(types.includes("email"));
+  assert(types.includes("phone"));
+  assert(types.includes("secret") || types.includes("gitleaks"));
+  assert(types.includes("bank"));
+  assert(types.includes("identity"));
+});
+
+test("same plaintext reuses token and restore is exact", async () => {
+  const ctx = new RedactionContext({salt:"unit-test"});
+  const flags = parseFlags("E");
+  const out = await ctx.redactText("a@example.com / a@example.com", flags);
+  const tokens = out.match(/\{\{reduct:[a-f0-9]{64}\}\}/g);
+  assert.equal(tokens.length, 2);
+  assert.equal(tokens[0], tokens[1]);
+  assert.equal(ctx.restoreText(out), "a@example.com / a@example.com");
+});
+
+test("existing reduct-looking placeholder is not nested or restored", async () => {
+  const original = "{{reduct:" + "a".repeat(64) + "}}";
+  const ctx = new RedactionContext({salt:"unit-test"});
+  const out = await ctx.redactText(original, parseFlags("H"));
+  assert.equal(out, original);
+  assert.equal(ctx.restoreText(out), original);
+});
+
+test("notice is injected after redaction for OpenAI Chat", async () => {
+  const body = {model:"gpt-test",messages:[{role:"user",content:"mail a@example.com"}]};
+  const ctx = new RedactionContext({salt:"unit-test"});
+  const redacted = await redactJson(body, ctx, parseFlags("E"));
+  const protocol = detectProtocol(redacted, new URL("https://api.example/v1/chat/completions"), new Headers());
+  assert.equal(injectReductNotice(redacted, protocol), true);
+  assert.match(redacted.messages[0].content, /^We have redacted sensitive content/);
+  assert.match(redacted.messages[0].content, /\{\{reduct:[a-f0-9]{64}\}\}/);
+  assert(!redacted.messages[0].content.includes("a@example.com"));
+});
+
+test("notice handles Responses string and content arrays", () => {
+  const a = {input:"hello"};
+  assert(injectReductNotice(a,"openai_responses"));
+  assert(a.input.endsWith("\n\nhello"));
+  const b = {input:[{role:"user",content:[{type:"input_text",text:"hello"},{type:"input_image",image_url:"data:image/png;base64,AAAA"}]}]};
+  assert(injectReductNotice(b,"openai_responses"));
+  assert.match(b.input[0].content[0].text,/^We have redacted/);
+});
+
+test("notice handles Anthropic content block without touching image data", async () => {
+  const raw = "A".repeat(200);
+  const body = {model:"claude-test",messages:[{role:"user",content:[{type:"image",source:{type:"base64",media_type:"image/png",data:raw}},{type:"text",text:"a@example.com"}]}]};
+  const ctx = new RedactionContext({salt:"unit-test"});
+  const redacted = await redactJson(body,ctx,parseFlags("HE"));
+  assert.equal(redacted.messages[0].content[0].source.data,raw);
+  injectReductNotice(redacted,"anthropic_messages");
+  assert.match(redacted.messages[0].content[1].text,/^We have redacted/);
+});

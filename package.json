@@ -1,0 +1,13 @@
+{
+  "name": "reduct-proxy",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Serverless privacy proxy for OpenAI Chat/Responses and Anthropic Messages with reversible per-request redaction.",
+  "scripts": {
+    "test": "node --test",
+    "start": "node node-server.mjs"
+  },
+  "engines": { "node": ">=20" },
+  "license": "MIT"
+}
