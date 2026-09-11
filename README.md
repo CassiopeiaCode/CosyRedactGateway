@@ -229,6 +229,10 @@ The URL envelope intentionally follows TransformVetter's documented `/{config}${
 
 TransformVetter: https://github.com/CassiopeiaCode/TransformVetter
 
+## Linux.do
+
+Thanks to the support from [Linux.do](Linux.do)
+
 ## License
 
 MIT.
