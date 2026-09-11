@@ -13,17 +13,17 @@ const FLAG_NAMES = Object.freeze({
 });
 
 export const REDUCT_NOTICE =
-  "We have redacted sensitive content in this conversation before forwarding it. " +
-  "You may see placeholders in the form {{reduct:sha256}}; each placeholder represents sensitive text. " +
-  "You may output these placeholders exactly as received, and our system will automatically replace them with the original sensitive text.";
+  "Sensitive values are redacted before forwarding, including messages, tool inputs, and tool results. " +
+  "You may see {{reduct:sha256}} placeholders; treat them as opaque and preserve them exactly. " +
+  "Sensitive values you read appear as placeholders, and placeholders you emit in text or tool calls are restored to the original secrets.";
 
 const TOKEN_PREFIX = "{{reduct:";
 const TOKEN_SUFFIX = "}}";
 const TOKEN_RE = /\{\{reduct:[a-f0-9]{64}\}\}/g;
 const TOKEN_FULL_RE = /^\{\{reduct:[a-f0-9]{64}\}\}$/;
 const TOKEN_LENGTH = TOKEN_PREFIX.length + 64 + TOKEN_SUFFIX.length;
-const DEFAULT_MAX_BODY_BYTES = 4 * 1024 * 1024;
-const DEFAULT_MAX_REDACTIONS = 4096;
+const DEFAULT_MAX_BODY_BYTES = 16 * 1024 * 1024;
+const DEFAULT_MAX_REDACTIONS = 16384;
 const textEncoder = new TextEncoder();
 
 function randomSalt() {

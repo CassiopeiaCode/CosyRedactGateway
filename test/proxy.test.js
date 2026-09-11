@@ -35,7 +35,7 @@ test("OpenAI Responses input string is redacted and notice-prefixed", async () =
     return new Response(JSON.stringify({output:[{type:"message",content:[{type:"output_text",text:token}]}]}),{headers:{"content-type":"application/json"}});
   };
   const response=await handleRequest(req("https://p/E$https://api.example/v1/responses",{model:"gpt",input:"contact a@example.com"}),{}, {fetchImpl,salt:"fixed"});
-  assert.match(seen.input,/^We have redacted/); assert(!seen.input.includes("a@example.com"));
+  assert.match(seen.input,/^Sensitive values are redacted/); assert(!seen.input.includes("a@example.com"));
   assert.equal((await response.json()).output[0].content[0].text,"a@example.com");
 });
 
@@ -46,7 +46,7 @@ test("Anthropic Messages string content is redacted and restored", async () => {
     return new Response(JSON.stringify({type:"message",role:"assistant",content:[{type:"text",text:`${token}!`}]}),{headers:{"content-type":"application/json"}});
   };
   const response=await handleRequest(req("https://p/E$https://api.anthropic.example/v1/messages",{model:"claude",max_tokens:20,messages:[{role:"user",content:"a@example.com"}]},{"x-api-key":"k","anthropic-version":"2023-06-01"}),{}, {fetchImpl,salt:"fixed"});
-  assert.equal(seen.messages[0].content.startsWith("We have redacted"),true);
+  assert.equal(seen.messages[0].content.startsWith("Sensitive values are redacted"),true);
   assert.equal((await response.json()).content[0].text,"a@example.com!");
 });
 
@@ -104,6 +104,6 @@ test("Responses array format injects notice into last user item only", async () 
   ]};
   await handleRequest(req("https://p/E$https://api.example/v1/responses",body),{}, {fetchImpl,salt:"fixed"});
   assert.equal(seen.input[0].content[0].text,"first");
-  assert.match(seen.input[2].content[0].text,/^We have redacted sensitive content/);
+  assert.match(seen.input[2].content[0].text,/^Sensitive values are redacted before forwarding/);
   assert(!seen.input[2].content[0].text.includes("a@example.com"));
 });

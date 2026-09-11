@@ -63,7 +63,7 @@ test("notice is injected after redaction for OpenAI Chat", async () => {
   const redacted = await redactJson(body, ctx, parseFlags("E"));
   const protocol = detectProtocol(redacted, new URL("https://api.example/v1/chat/completions"), new Headers());
   assert.equal(injectReductNotice(redacted, protocol), true);
-  assert.match(redacted.messages[0].content, /^We have redacted sensitive content/);
+  assert.match(redacted.messages[0].content, /^Sensitive values are redacted before forwarding/);
   assert.match(redacted.messages[0].content, /\{\{reduct:[a-f0-9]{64}\}\}/);
   assert(!redacted.messages[0].content.includes("a@example.com"));
 });
@@ -74,7 +74,7 @@ test("notice handles Responses string and content arrays", () => {
   assert(a.input.endsWith("\n\nhello"));
   const b = {input:[{role:"user",content:[{type:"input_text",text:"hello"},{type:"input_image",image_url:"data:image/png;base64,AAAA"}]}]};
   assert(injectReductNotice(b,"openai_responses"));
-  assert.match(b.input[0].content[0].text,/^We have redacted/);
+  assert.match(b.input[0].content[0].text,/^Sensitive values are redacted/);
 });
 
 test("notice handles Anthropic content block without touching image data", async () => {
@@ -84,5 +84,38 @@ test("notice handles Anthropic content block without touching image data", async
   const redacted = await redactJson(body,ctx,parseFlags("HE"));
   assert.equal(redacted.messages[0].content[0].source.data,raw);
   injectReductNotice(redacted,"anthropic_messages");
-  assert.match(redacted.messages[0].content[1].text,/^We have redacted/);
+  assert.match(redacted.messages[0].content[1].text,/^Sensitive values are redacted/);
+});
+
+test("tool results are redacted before they are forwarded to the model", async () => {
+  const body = {
+    model:"gpt-test",
+    messages:[
+      {role:"user",content:"check the tool result"},
+      {role:"tool",tool_call_id:"call_1",content:'{"email":"alice@example.com"}'}
+    ]
+  };
+  const ctx = new RedactionContext({salt:"unit-test"});
+  const redacted = await redactJson(body, ctx, parseFlags("E"));
+  assert(!redacted.messages[1].content.includes("alice@example.com"));
+  assert.match(redacted.messages[1].content, /\{\{reduct:[a-f0-9]{64}\}\}/);
+});
+
+test("tool-call arguments containing placeholders restore to the original secret", async () => {
+  const ctx = new RedactionContext({salt:"unit-test"});
+  const redacted = await ctx.redactText("alice@example.com", parseFlags("E"));
+  const response = {
+    choices:[{
+      message:{
+        tool_calls:[{
+          id:"call_1",
+          type:"function",
+          function:{name:"send_mail",arguments:JSON.stringify({email:redacted})}
+        }]
+      }
+    }]
+  };
+  const { restoreJson } = await import("../worker.js");
+  restoreJson(response, ctx);
+  assert.equal(JSON.parse(response.choices[0].message.tool_calls[0].function.arguments).email, "alice@example.com");
 });

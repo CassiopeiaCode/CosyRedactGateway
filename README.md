@@ -1,8 +1,62 @@
 # Reduct Proxy
 
-A single-file, serverless-friendly privacy relay for LLM APIs. It keeps the upstream protocol intact, redacts sensitive request text before forwarding it, remembers the replacements only for the lifetime of that request, and restores matching placeholders in normal JSON responses or SSE streams.
+> **Use the upstream you need. Keep the secrets it doesn't.**
 
-`worker.js` is the deployable artifact. It is written only against Web Fetch, Web Streams, and Web Crypto APIs so the same file works as a Cloudflare Worker module and as a directly executable Deno program.
+**Reduct Proxy** is a drop-in privacy relay for LLM APIs. Point your existing OpenAI- or Anthropic-compatible client at the proxy, and sensitive values are replaced with reversible `{{reduct:...}}` placeholders **before they reach the upstream model**. When the model returns those placeholders—whether in normal text, JSON, SSE, or tool-call arguments—the proxy restores the original values on the way back.
+
+**Single file · zero runtime dependencies · Cloudflare Workers · Deno · Node 20+ · streaming-safe**
+
+### Why use it?
+
+- **Keep your existing client.** Change the base URL; Reduct Proxy preserves the upstream wire format instead of translating it.
+- **Protect prompts and tools.** Messages, tool inputs/results, and other JSON strings are scanned before forwarding.
+- **Restore transparently.** Known placeholders are restored in regular responses and streaming tool/function-call deltas.
+- **Choose your protection level.** Enable high-entropy detection, phone, `sk-` secrets, PRC ID, bank card, email, and a broad Gitleaks-compatible rule set with compact URL flags.
+- **Run almost anywhere.** The deployable `worker.js` only uses Web Fetch, Web Streams, and Web Crypto APIs.
+
+### 30-second example
+
+Keep the original upstream URL after `$` and put the enabled detector flags before it:
+
+```text
+https://proxy.example.com/HPSE$https://api.openai.com/v1/chat/completions
+```
+
+Or enable **everything** by leaving the flag section empty:
+
+```text
+https://proxy.example.com/$https://api.openai.com/v1/responses
+```
+
+The data path is intentionally simple:
+
+```text
+client request
+    │
+    ├─ detect sensitive values
+    ├─ replace them with {{reduct:<sha256>}}
+    ├─ add a short Reduct Notice to the last user message
+    ▼
+untrusted upstream model
+    │
+    ├─ model may echo placeholders in text or tool calls
+    ▼
+Reduct Proxy restores known placeholders
+    │
+    ▼
+client receives the original sensitive values
+```
+
+The replacement table is request-local and never persisted.
+
+A tool round-trip looks like this:
+
+```text
+client/tool result:   {"email":"alice@example.com"}
+upstream model sees:  {"email":"{{reduct:…}}"}
+model tool call:      {"email":"{{reduct:…}}"}
+client receives:      {"email":"alice@example.com"}
+```
 
 ## Routing
 
@@ -76,8 +130,10 @@ The implementation deliberately does not expose the salt or plaintext in respons
 The notice is **always enabled**; it is not a URL flag. Redaction happens first, then the following English metadata is inserted at byte/character position 0 of the last user message:
 
 ```text
-We have redacted sensitive content in this conversation before forwarding it. You may see placeholders in the form {{reduct:sha256}}; each placeholder represents sensitive text. You may output these placeholders exactly as received, and our system will automatically replace them with the original sensitive text.
+Sensitive values are redacted before forwarding, including messages, tool inputs, and tool results. You may see {{reduct:sha256}} placeholders; treat them as opaque and preserve them exactly. Sensitive values you read appear as placeholders, and placeholders you emit in text or tool calls are restored to the original secrets.
 ```
+
+This is deliberately short, but it tells the model both directions of the contract: **reads are redacted before reaching the model; outputs are restored before reaching the client**. That includes placeholders inside tool/function-call arguments as well as ordinary assistant text. Tool results or other sensitive tool content sent back to the model in a later request are scanned and redacted again before forwarding.
 
 For OpenAI Responses with a string `input`, the notice is prefixed to that string. For array/message forms it is prefixed to the last `role: "user"` textual content block. If there is no user message, nothing artificial is added.
 
@@ -171,15 +227,15 @@ curl -N \
 | Variable | Default | Meaning |
 |---|---:|---|
 | `REDUCT_ALLOWED_HOSTS` | unset | comma-separated hostname allow-list; unset allows arbitrary upstreams |
-| `REDUCT_MAX_BODY_BYTES` | 4 MiB | maximum request body buffered for safe JSON redaction |
-| `REDUCT_MAX_REDACTIONS` | 4096 | maximum unique plaintext replacements in one request |
+| `REDUCT_MAX_BODY_BYTES` | 16 MiB | maximum request body buffered for safe JSON redaction |
+| `REDUCT_MAX_REDACTIONS` | 16384 | maximum unique plaintext replacements in one request |
 | `REDUCT_CORS_ORIGIN` | `*` | `Access-Control-Allow-Origin` value |
 | `HOST` | `127.0.0.1` | Node local adapter only |
 | `PORT` | `8787` | Node local adapter only |
 
 Non-empty request bodies must be JSON. This is intentional fail-closed behavior: an unknown binary or plaintext body is rejected with 415 instead of being forwarded without redaction.
 
-Large base64 image/audio payload fields and URL/control fields are excluded from text redaction to avoid corrupting multimodal requests.
+Large base64 image/audio payload fields and URL/control fields are excluded from text redaction to avoid corrupting multimodal requests. The defaults are intentionally generous for large LLM payloads; on memory-constrained deployments, lower `REDUCT_MAX_BODY_BYTES` and/or `REDUCT_MAX_REDACTIONS` explicitly.
 
 ## Tests
 
@@ -229,9 +285,12 @@ The URL envelope intentionally follows TransformVetter's documented `/{config}${
 
 TransformVetter: https://github.com/CassiopeiaCode/TransformVetter
 
-## Linux.do
+## Acknowledgements
 
-Thanks to the support from [Linux.do](//Linux.do)
+Community support matters. ❤️
+
+[Linux.do](https://linux.do/)  
+Thanks to the support from Linux.do
 
 ## License
 

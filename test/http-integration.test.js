@@ -21,7 +21,7 @@ test("real local HTTP upstream receives redacted JSON and client gets restored J
     const request=new Request(u,{method:"POST",headers:{"content-type":"application/json","authorization":"Bearer local-key"},body:JSON.stringify({model:"g",input:"a@example.com"})});
     const response=await handleRequest(request,{}, {salt:"fixed"});
     assert.equal(response.status,200); assert.equal(auth,"Bearer local-key");
-    assert(!upstreamBody.input.includes("a@example.com")); assert.match(upstreamBody.input,/^We have redacted/);
+    assert(!upstreamBody.input.includes("a@example.com")); assert.match(upstreamBody.input,/^Sensitive values are redacted/);
     assert.equal((await response.json()).output_text,"echo a@example.com");
   } finally { await close(upstream); }
 });

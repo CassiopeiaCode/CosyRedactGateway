@@ -1,6 +1,6 @@
 {
   "name": "reduct-proxy",
-  "version": "0.2.0",
+  "version": "0.2.2",
   "private": true,
   "type": "module",
   "description": "Serverless privacy proxy for OpenAI Chat/Responses and Anthropic Messages with reversible per-request redaction.",

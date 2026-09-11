@@ -10,7 +10,7 @@ It does **not** attempt to make a malicious upstream trustworthy. It only reduce
 
 1. Set `REDUCT_ALLOWED_HOSTS` unless arbitrary upstream routing is an explicit requirement.
 2. Protect public deployments with your platform's authentication/rate limiting if they should not be open relays.
-3. Keep `REDUCT_MAX_BODY_BYTES` and `REDUCT_MAX_REDACTIONS` bounded.
+3. Keep `REDUCT_MAX_BODY_BYTES` and `REDUCT_MAX_REDACTIONS` bounded. The shipped defaults are 16 MiB and 16384 respectively; lower them on memory-constrained deployments.
 4. Do not log request bodies, upstream bodies, or the per-runtime salt in surrounding infrastructure.
 5. Keep redirects disabled. The implementation uses `redirect: "manual"` so an upstream cannot redirect the forwarded API key to a second origin.
 6. Treat URL-embedded upstream query parameters as visible routing metadata. Secrets should normally remain in forwarded authorization headers, not the proxy URL.

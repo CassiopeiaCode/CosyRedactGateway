@@ -34,6 +34,6 @@ test("node-server adapter proxies through a real HTTP socket", async (t)=>{
   });
   assert.equal(r.status,200);
   assert(!upstreamBody.input.includes("a@example.com"));
-  assert.match(upstreamBody.input,/^We have redacted sensitive content/);
+  assert.match(upstreamBody.input,/^Sensitive values are redacted before forwarding/);
   assert.equal((await r.json()).output_text,"echo:a@example.com");
 });
