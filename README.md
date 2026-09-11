@@ -292,8 +292,10 @@ Community support matters. ❤️
 [Linux.do](https://linux.do/)  
 Thanks to the support from Linux.do
 
-However, Fengfeng10 added no value to this project.
-
 ## License
 
 MIT.
+
+## Rambling
+
+However, Fengfeng10 added no value to this project.
