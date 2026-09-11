@@ -45,6 +45,22 @@ export function parseFlags(raw) {
   return out;
 }
 
+function isForbiddenUpstreamHost(hostname) {
+  const host = hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  if (host === "localhost" || host.endsWith(".localhost")) return true;
+  if (host === "::1" || host === "::" || /^0*:0*:0*:0*:0*:0*:0*:0*1$/.test(host)) return true;
+  if (/^fe80:/i.test(host) || /^f[cd][0-9a-f]{2}:/i.test(host)) return true;
+  const v4 = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (v4) {
+    const [a, b] = v4.slice(1).map(Number);
+    if (a === 10 || a === 127 || a === 0) return true;
+    if (a === 169 && b === 254) return true;
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    if (a === 192 && b === 168) return true;
+  }
+  return false;
+}
+
 export function parseProxyTarget(requestUrl) {
   const u = new URL(requestUrl);
   const routed = u.pathname + u.search;
@@ -56,6 +72,7 @@ export function parseProxyTarget(requestUrl) {
   const upstream = new URL(upstreamText);
   if (upstream.protocol !== "https:" && upstream.protocol !== "http:") throw new Error("Only http/https upstream URLs are supported");
   if (upstream.username || upstream.password) throw new Error("Upstream URLs containing userinfo are not supported");
+  if (isForbiddenUpstreamHost(upstream.hostname)) throw new Error("Upstream URLs targeting private, loopback, or link-local addresses are not supported");
   return { flags: parseFlags(flagText), flagText: flagText || ALL_FLAG_LETTERS, upstream };
 }
 
