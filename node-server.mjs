@@ -19,4 +19,4 @@ const server = http.createServer(async (req, res) => {
     res.statusCode = 500; res.end(String(e?.stack || e));
   }
 });
-server.listen(port, host, () => console.log(`reduct-proxy listening on http://${host}:${port}`));
+server.listen(port, host, () => console.log(`cosy-redact-gateway listening on http://${host}:${port}`));

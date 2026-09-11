@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { handleRequest } from "../worker.js";
 
-const TOKEN=/\{\{reduct:[a-f0-9]{64}\}\}/;
+const TOKEN=/\{\{Redact:[a-f0-9]{64}\}\}/;
 function request(url,body){return new Request(url,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(body)});}
 function chunkedResponse(text, sizes=[1,2,3,5,8,13]){
   const enc=new TextEncoder(); let at=0,i=0;

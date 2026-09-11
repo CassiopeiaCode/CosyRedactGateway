@@ -2,15 +2,15 @@
 
 ## Threat model
 
-Reduct Proxy assumes the selected upstream may store or inspect everything it receives. The relay therefore edits supported JSON request text before the upstream fetch and only keeps the plaintext/token mapping in memory for the lifetime of that request.
+Cosy Redact Gateway assumes the selected upstream may store or inspect everything it receives. The relay therefore edits supported JSON request text before the upstream fetch and only keeps the plaintext/token mapping in memory for the lifetime of that request.
 
 It does **not** attempt to make a malicious upstream trustworthy. It only reduces accidental disclosure of values recognized by the configured detectors.
 
 ## Deployment checklist
 
-1. Set `REDUCT_ALLOWED_HOSTS` unless arbitrary upstream routing is an explicit requirement.
+1. Set `REDACT_ALLOWED_HOSTS` unless arbitrary upstream routing is an explicit requirement.
 2. Protect public deployments with your platform's authentication/rate limiting if they should not be open relays.
-3. Keep `REDUCT_MAX_BODY_BYTES` and `REDUCT_MAX_REDACTIONS` bounded. The shipped defaults are 16 MiB and 16384 respectively; lower them on memory-constrained deployments.
+3. Keep `REDACT_MAX_BODY_BYTES` and `REDACT_MAX_REDACTIONS` bounded. The shipped defaults are 16 MiB and 16384 respectively; lower them on memory-constrained deployments.
 4. Do not log request bodies, upstream bodies, or the per-runtime salt in surrounding infrastructure.
 5. Keep redirects disabled. The implementation uses `redirect: "manual"` so an upstream cannot redirect the forwarded API key to a second origin.
 6. Treat URL-embedded upstream query parameters as visible routing metadata. Secrets should normally remain in forwarded authorization headers, not the proxy URL.

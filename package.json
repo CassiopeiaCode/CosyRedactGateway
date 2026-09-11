@@ -1,6 +1,6 @@
 {
-  "name": "reduct-proxy",
-  "version": "0.2.2",
+  "name": "cosy-redact-gateway",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "description": "Serverless privacy proxy for OpenAI Chat/Responses and Anthropic Messages with reversible per-request redaction.",

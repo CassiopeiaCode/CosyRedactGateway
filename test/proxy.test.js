@@ -1,8 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { handleRequest, REDUCT_NOTICE } from "../worker.js";
+import { handleRequest, REDACT_NOTICE } from "../worker.js";
 
-const TOKEN = /\{\{reduct:[a-f0-9]{64}\}\}/;
+const TOKEN = /\{\{Redact:[a-f0-9]{64}\}\}/;
 
 function req(url, body, headers={}) {
   return new Request(url,{method:"POST",headers:{"content-type":"application/json",...headers},body:JSON.stringify(body)});
@@ -22,7 +22,7 @@ test("non-stream OpenAI Chat: key/header forwarding, notice, redaction, restorat
   assert.equal(seen.init.headers.get("authorization"),"Bearer upstream-secret");
   assert.equal(seen.init.headers.get("cf-connecting-ip"),null);
   assert.equal(seen.init.headers.get("x-forwarded-for"),null);
-  assert.match(seen.body.messages[0].content,new RegExp("^"+REDUCT_NOTICE.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")));
+  assert.match(seen.body.messages[0].content,new RegExp("^"+REDACT_NOTICE.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")));
   assert(!seen.body.messages[0].content.includes("a@example.com"));
   const out=await response.json();
   assert.equal(out.choices[0].message.content,"I saw a@example.com");
@@ -59,12 +59,12 @@ test("invalid JSON/non-JSON body fails closed instead of leaking to upstream", a
 
 test("max redaction limit fails closed", async () => {
   let called=false; const fetchImpl=async()=>{called=true;return new Response("no")};
-  const r=await handleRequest(req("https://p/E$https://api.example/v1/responses",{input:"a@x.com b@y.com"}),{REDUCT_MAX_REDACTIONS:"1"},{fetchImpl,salt:"x"});
+  const r=await handleRequest(req("https://p/E$https://api.example/v1/responses",{input:"a@x.com b@y.com"}),{REDACT_MAX_REDACTIONS:"1"},{fetchImpl,salt:"x"});
   assert.equal(r.status,413); assert.equal(called,false);
 });
 
 test("optional upstream allow-list blocks other hosts", async () => {
-  const r=await handleRequest(req("https://p/E$https://evil.example/v1/responses",{input:"hello"}),{REDUCT_ALLOWED_HOSTS:"api.example.com"},{fetchImpl:async()=>{throw new Error("must not call")}});
+  const r=await handleRequest(req("https://p/E$https://evil.example/v1/responses",{input:"hello"}),{REDACT_ALLOWED_HOSTS:"api.example.com"},{fetchImpl:async()=>{throw new Error("must not call")}});
   assert.equal(r.status,403);
 });
 

@@ -1,4 +1,4 @@
-// Reduct Proxy — universal Cloudflare Worker / Deno module.
+// Cosy Redact Gateway — universal Cloudflare Worker / Deno module.
 // Runtime dependencies: none. Requires Web Fetch, Web Streams, and Web Crypto APIs.
 
 const ALL_FLAG_LETTERS = "HPSIBEG";
@@ -12,15 +12,15 @@ const FLAG_NAMES = Object.freeze({
   G: "gitleaks",
 });
 
-export const REDUCT_NOTICE =
+export const REDACT_NOTICE =
   "Sensitive values are redacted before forwarding, including messages, tool inputs, and tool results. " +
-  "You may see {{reduct:sha256}} placeholders; treat them as opaque and preserve them exactly. " +
+  "You may see {{Redact:sha256}} placeholders; treat them as opaque and preserve them exactly. " +
   "Sensitive values you read appear as placeholders, and placeholders you emit in text or tool calls are restored to the original secrets.";
 
-const TOKEN_PREFIX = "{{reduct:";
+const TOKEN_PREFIX = "{{Redact:";
 const TOKEN_SUFFIX = "}}";
-const TOKEN_RE = /\{\{reduct:[a-f0-9]{64}\}\}/g;
-const TOKEN_FULL_RE = /^\{\{reduct:[a-f0-9]{64}\}\}$/;
+const TOKEN_RE = /\{\{Redact:[a-f0-9]{64}\}\}/g;
+const TOKEN_FULL_RE = /^\{\{Redact:[a-f0-9]{64}\}\}$/;
 const TOKEN_LENGTH = TOKEN_PREFIX.length + 64 + TOKEN_SUFFIX.length;
 const DEFAULT_MAX_BODY_BYTES = 16 * 1024 * 1024;
 const DEFAULT_MAX_REDACTIONS = 16384;
@@ -462,7 +462,7 @@ function collectRegexSpans(text, regex, type, priority, validator = null) {
 function overlaps(a, b) { return a.start < b.end && a.end > b.start; }
 
 export function findSensitiveSpans(text, flags) {
-  const protectedSpans = collectRegexSpans(text, /\{\{reduct:[a-f0-9]{64}\}\}/g, "existing", 1000);
+  const protectedSpans = collectRegexSpans(text, /\{\{Redact:[a-f0-9]{64}\}\}/g, "existing", 1000);
   const c = [];
   if (flags.secret) c.push(...collectRegexSpans(text, /\bsk-[A-Za-z0-9]{60,}\b/g, "secret", 110));
   if (flags.email) c.push(...collectRegexSpans(text, /[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+/g, "email", 90));
@@ -565,23 +565,23 @@ export function detectProtocol(body, upstream, headers) {
 }
 
 function prependToContent(message, protocol) {
-  const prefix = REDUCT_NOTICE + "\n\n";
+  const prefix = REDACT_NOTICE + "\n\n";
   if (typeof message.content === "string") { message.content = prefix + message.content; return true; }
   if (Array.isArray(message.content)) {
     for (const block of message.content) {
       if (block && typeof block === "object" && typeof block.text === "string" && (block.type === "text" || block.type === "input_text" || !block.type)) { block.text = prefix + block.text; return true; }
     }
-    message.content.unshift({ type: protocol === "openai_responses" ? "input_text" : "text", text: REDUCT_NOTICE });
+    message.content.unshift({ type: protocol === "openai_responses" ? "input_text" : "text", text: REDACT_NOTICE });
     return true;
   }
   message.content = prefix;
   return true;
 }
 
-export function injectReductNotice(body, protocol) {
+export function injectRedactNotice(body, protocol) {
   if (!body || typeof body !== "object") return false;
   if (protocol === "openai_responses") {
-    if (typeof body.input === "string") { body.input = REDUCT_NOTICE + "\n\n" + body.input; return true; }
+    if (typeof body.input === "string") { body.input = REDACT_NOTICE + "\n\n" + body.input; return true; }
     if (Array.isArray(body.input)) {
       for (let i = body.input.length - 1; i >= 0; i--) {
         const item = body.input[i];
@@ -633,12 +633,12 @@ function corsPreflight(request, origin = "*") {
 
 function intSetting(v, fallback) { const n = Number(v); return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback; }
 function allowedHost(upstream, env) {
-  const raw = env?.REDUCT_ALLOWED_HOSTS;
+  const raw = env?.REDACT_ALLOWED_HOSTS;
   if (!raw) return true;
   const allow = raw.split(",").map((x)=>x.trim().toLowerCase()).filter(Boolean);
   return allow.some((h) => upstream.hostname.toLowerCase() === h || upstream.hostname.toLowerCase().endsWith("." + h));
 }
-function jsonError(status, message) { return new Response(JSON.stringify({ error: { message, type:"reduct_proxy_error" } }), { status, headers:{"content-type":"application/json; charset=utf-8"} }); }
+function jsonError(status, message) { return new Response(JSON.stringify({ error: { message, type:"cosy_redact_gateway_error" } }), { status, headers:{"content-type":"application/json; charset=utf-8"} }); }
 
 function isJsonContentType(ct) { return /(^|[+\/])json(?:$|[; ])/i.test(ct || "") || /application\/.*\+json/i.test(ct || ""); }
 function isTextualContentType(ct) { return isJsonContentType(ct) || /^text\//i.test(ct || "") || /javascript|xml/i.test(ct || ""); }
@@ -834,19 +834,19 @@ async function restoreNonStreamResponse(upstreamResponse, ctx, corsOrigin) {
 }
 
 export async function handleRequest(request, env = {}, options = {}) {
-  const corsOrigin=env?.REDUCT_CORS_ORIGIN || "*";
+  const corsOrigin=env?.REDACT_CORS_ORIGIN || "*";
   if (request.method === "OPTIONS") return corsPreflight(request,corsOrigin);
   const url=new URL(request.url);
   if (url.pathname === "/" || url.pathname === "/healthz") {
-    return new Response(JSON.stringify({ok:true,service:"reduct-proxy",route:"/<flags>$<upstream-url>",flags:ALL_FLAG_LETTERS,defaultAll:true}),{headers:withCors({"content-type":"application/json; charset=utf-8"},corsOrigin)});
+    return new Response(JSON.stringify({ok:true,service:"cosy-redact-gateway",route:"/<flags>$<upstream-url>",flags:ALL_FLAG_LETTERS,defaultAll:true}),{headers:withCors({"content-type":"application/json; charset=utf-8"},corsOrigin)});
   }
   let target;
   try { target=parseProxyTarget(request.url); } catch(e) { return jsonError(400,e.message); }
   if (!target) return jsonError(404,"Expected /<flags>$<upstream-url>");
-  if (!allowedHost(target.upstream,env)) return jsonError(403,"Upstream host is not in REDUCT_ALLOWED_HOSTS");
+  if (!allowedHost(target.upstream,env)) return jsonError(403,"Upstream host is not in REDACT_ALLOWED_HOSTS");
 
-  const maxBody=intSetting(env?.REDUCT_MAX_BODY_BYTES,DEFAULT_MAX_BODY_BYTES);
-  const maxRedactions=intSetting(env?.REDUCT_MAX_REDACTIONS,DEFAULT_MAX_REDACTIONS);
+  const maxBody=intSetting(env?.REDACT_MAX_BODY_BYTES,DEFAULT_MAX_BODY_BYTES);
+  const maxRedactions=intSetting(env?.REDACT_MAX_REDACTIONS,DEFAULT_MAX_REDACTIONS);
   const ctx=new RedactionContext({salt:options.salt || RUNTIME_SALT,maxRedactions});
   const headers=filteredRequestHeaders(request.headers);
   let body;
@@ -861,7 +861,7 @@ export async function handleRequest(request, env = {}, options = {}) {
       try {
         data=await redactJson(data,ctx,target.flags);
         const protocol=detectProtocol(data,target.upstream,request.headers);
-        injectReductNotice(data,protocol);
+        injectRedactNotice(data,protocol);
       } catch(e) { if (e instanceof RedactionLimitError) return jsonError(413,e.message); throw e; }
       body=JSON.stringify(data); headers.set("content-type","application/json"); headers.delete("content-length");
     } else body="";

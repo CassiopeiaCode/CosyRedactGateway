@@ -6,7 +6,7 @@ The high-entropy detector is intentionally length-aware and runs only after loss
 
 For short strings, empirical character-frequency Shannon entropy cannot distinguish many natural words from random tokens: a 9-character word with 9 unique characters and a 9-character random token with 9 unique characters both have `log2(9)` empirical bits/character. Hex strings are another failure mode because their alphabet caps ordinary entropy near 4 bits/character.
 
-Reduct Proxy therefore scores each ASCII alphanumeric block using a smoothed English character-bigram cross-entropy model and separately requires minimum observed-symbol diversity.
+Cosy Redact Gateway therefore scores each ASCII alphanumeric block using a smoothed English character-bigram cross-entropy model and separately requires minimum observed-symbol diversity.
 
 ## Runtime rule
 

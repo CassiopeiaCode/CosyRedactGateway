@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   parseFlags, parseProxyTarget, tokenizeBlocks, RedactionContext,
-  findSensitiveSpans, injectReductNotice, detectProtocol, redactJson
+  findSensitiveSpans, injectRedactNotice, detectProtocol, redactJson
 } from "../worker.js";
 
 const all = {highEntropy:true,phone:true,secret:true,identity:true,bank:true,email:true,gitleaks:true};
@@ -43,14 +43,14 @@ test("same plaintext reuses token and restore is exact", async () => {
   const ctx = new RedactionContext({salt:"unit-test"});
   const flags = parseFlags("E");
   const out = await ctx.redactText("a@example.com / a@example.com", flags);
-  const tokens = out.match(/\{\{reduct:[a-f0-9]{64}\}\}/g);
+  const tokens = out.match(/\{\{Redact:[a-f0-9]{64}\}\}/g);
   assert.equal(tokens.length, 2);
   assert.equal(tokens[0], tokens[1]);
   assert.equal(ctx.restoreText(out), "a@example.com / a@example.com");
 });
 
-test("existing reduct-looking placeholder is not nested or restored", async () => {
-  const original = "{{reduct:" + "a".repeat(64) + "}}";
+test("existing Redact-looking placeholder is not nested or restored", async () => {
+  const original = "{{Redact:" + "a".repeat(64) + "}}";
   const ctx = new RedactionContext({salt:"unit-test"});
   const out = await ctx.redactText(original, parseFlags("H"));
   assert.equal(out, original);
@@ -62,18 +62,18 @@ test("notice is injected after redaction for OpenAI Chat", async () => {
   const ctx = new RedactionContext({salt:"unit-test"});
   const redacted = await redactJson(body, ctx, parseFlags("E"));
   const protocol = detectProtocol(redacted, new URL("https://api.example/v1/chat/completions"), new Headers());
-  assert.equal(injectReductNotice(redacted, protocol), true);
+  assert.equal(injectRedactNotice(redacted, protocol), true);
   assert.match(redacted.messages[0].content, /^Sensitive values are redacted before forwarding/);
-  assert.match(redacted.messages[0].content, /\{\{reduct:[a-f0-9]{64}\}\}/);
+  assert.match(redacted.messages[0].content, /\{\{Redact:[a-f0-9]{64}\}\}/);
   assert(!redacted.messages[0].content.includes("a@example.com"));
 });
 
 test("notice handles Responses string and content arrays", () => {
   const a = {input:"hello"};
-  assert(injectReductNotice(a,"openai_responses"));
+  assert(injectRedactNotice(a,"openai_responses"));
   assert(a.input.endsWith("\n\nhello"));
   const b = {input:[{role:"user",content:[{type:"input_text",text:"hello"},{type:"input_image",image_url:"data:image/png;base64,AAAA"}]}]};
-  assert(injectReductNotice(b,"openai_responses"));
+  assert(injectRedactNotice(b,"openai_responses"));
   assert.match(b.input[0].content[0].text,/^Sensitive values are redacted/);
 });
 
@@ -83,7 +83,7 @@ test("notice handles Anthropic content block without touching image data", async
   const ctx = new RedactionContext({salt:"unit-test"});
   const redacted = await redactJson(body,ctx,parseFlags("HE"));
   assert.equal(redacted.messages[0].content[0].source.data,raw);
-  injectReductNotice(redacted,"anthropic_messages");
+  injectRedactNotice(redacted,"anthropic_messages");
   assert.match(redacted.messages[0].content[1].text,/^Sensitive values are redacted/);
 });
 
@@ -98,7 +98,7 @@ test("tool results are redacted before they are forwarded to the model", async (
   const ctx = new RedactionContext({salt:"unit-test"});
   const redacted = await redactJson(body, ctx, parseFlags("E"));
   assert(!redacted.messages[1].content.includes("alice@example.com"));
-  assert.match(redacted.messages[1].content, /\{\{reduct:[a-f0-9]{64}\}\}/);
+  assert.match(redacted.messages[1].content, /\{\{Redact:[a-f0-9]{64}\}\}/);
 });
 
 test("tool-call arguments containing placeholders restore to the original secret", async () => {

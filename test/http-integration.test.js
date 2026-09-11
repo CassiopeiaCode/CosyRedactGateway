@@ -11,7 +11,7 @@ test("real local HTTP upstream receives redacted JSON and client gets restored J
   const upstream=http.createServer((req,res)=>{
     auth=req.headers.authorization; let data="";
     req.setEncoding("utf8"); req.on("data",c=>data+=c); req.on("end",()=>{
-      upstreamBody=JSON.parse(data); const token=upstreamBody.input.match(/\{\{reduct:[a-f0-9]{64}\}\}/)[0];
+      upstreamBody=JSON.parse(data); const token=upstreamBody.input.match(/\{\{Redact:[a-f0-9]{64}\}\}/)[0];
       res.setHeader("content-type","application/json"); res.end(JSON.stringify({output_text:`echo ${token}`}));
     });
   });

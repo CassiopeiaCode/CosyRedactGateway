@@ -17,7 +17,7 @@ npm test
 
 Final test result: **41/41 passing**.
 
-Runtime limit defaults verified in this archive: `REDUCT_MAX_BODY_BYTES=16777216` (16 MiB) and `REDUCT_MAX_REDACTIONS=16384`.
+Runtime limit defaults verified in this archive: `REDACT_MAX_BODY_BYTES=16777216` (16 MiB) and `REDACT_MAX_REDACTIONS=16384`.
 
 Coverage includes real local HTTP upstream forwarding, the real Node adapter process, OpenAI Chat, OpenAI Responses, Anthropic Messages, non-stream JSON restoration, SSE restoration, reasoning/tool JSON delta channels, header privacy filtering, body/redaction limits, and every possible split boundary of a 75-byte redaction token while the underlying SSE transport is delivered one byte at a time. Explicit tool regressions also verify that secrets in tool results are redacted before forwarding and placeholders returned inside tool-call arguments are restored to the original secret.
 

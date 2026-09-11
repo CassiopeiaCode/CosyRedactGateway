@@ -2,13 +2,13 @@
 
 > **Use the upstream you need. Keep the secrets it doesn't.**
 
-**Cosy Redact Gateway** is a drop-in privacy relay for LLM APIs. Point your existing OpenAI- or Anthropic-compatible client at the proxy, and sensitive values are replaced with reversible `{{reduct:...}}` placeholders **before they reach the upstream model**. When the model returns those placeholders—whether in normal text, JSON, SSE, or tool-call arguments—the proxy restores the original values on the way back.
+**Cosy Redact Gateway** is a drop-in privacy relay for LLM APIs. Point your existing OpenAI- or Anthropic-compatible client at the proxy, and sensitive values are replaced with reversible `{{Redact:...}}` placeholders **before they reach the upstream model**. When the model returns those placeholders—whether in normal text, JSON, SSE, or tool-call arguments—the proxy restores the original values on the way back.
 
 **Single file · zero runtime dependencies · Cloudflare Workers · Deno · Node 20+ · streaming-safe**
 
 ### Why use it?
 
-- **Keep your existing client.** Change the base URL; Reduct Proxy preserves the upstream wire format instead of translating it.
+- **Keep your existing client.** Change the base URL; Cosy Redact Gateway preserves the upstream wire format instead of translating it.
 - **Protect prompts and tools.** Messages, tool inputs/results, and other JSON strings are scanned before forwarding.
 - **Restore transparently.** Known placeholders are restored in regular responses and streaming tool/function-call deltas.
 - **Choose your protection level.** Enable high-entropy detection, phone, `sk-` secrets, PRC ID, bank card, email, and a broad Gitleaks-compatible rule set with compact URL flags.
@@ -34,14 +34,14 @@ The data path is intentionally simple:
 client request
     │
     ├─ detect sensitive values
-    ├─ replace them with {{reduct:<sha256>}}
-    ├─ add a short Reduct Notice to the last user message
+    ├─ replace them with {{Redact:<sha256>}}
+    ├─ add a short Redact Notice to the last user message
     ▼
 untrusted upstream model
     │
     ├─ model may echo placeholders in text or tool calls
     ▼
-Reduct Proxy restores known placeholders
+Cosy Redact Gateway restores known placeholders
     │
     ▼
 client receives the original sensitive values
@@ -53,8 +53,8 @@ A tool round-trip looks like this:
 
 ```text
 client/tool result:   {"email":"alice@example.com"}
-upstream model sees:  {"email":"{{reduct:…}}"}
-model tool call:      {"email":"{{reduct:…}}"}
+upstream model sees:  {"email":"{{Redact:…}}"}
+model tool call:      {"email":"{{Redact:…}}"}
 client receives:      {"email":"alice@example.com"}
 ```
 
@@ -112,7 +112,7 @@ At runtime/isolate startup, `worker.js` generates a random 256-bit salt. For eve
 A sensitive value becomes:
 
 ```text
-{{reduct:<sha256-hex>}}
+{{Redact:<sha256-hex>}}
 ```
 
 where the digest is:
@@ -125,12 +125,12 @@ The same plaintext in the same runtime therefore gets the same token, and the sa
 
 The implementation deliberately does not expose the salt or plaintext in response headers or logs.
 
-### Reduct Notice
+### Redact Notice
 
 The notice is **always enabled**; it is not a URL flag. Redaction happens first, then the following English metadata is inserted at byte/character position 0 of the last user message:
 
 ```text
-Sensitive values are redacted before forwarding, including messages, tool inputs, and tool results. You may see {{reduct:sha256}} placeholders; treat them as opaque and preserve them exactly. Sensitive values you read appear as placeholders, and placeholders you emit in text or tool calls are restored to the original secrets.
+Sensitive values are redacted before forwarding, including messages, tool inputs, and tool results. You may see {{Redact:sha256}} placeholders; treat them as opaque and preserve them exactly. Sensitive values you read appear as placeholders, and placeholders you emit in text or tool calls are restored to the original secrets.
 ```
 
 This is deliberately short, but it tells the model both directions of the contract: **reads are redacted before reaching the model; outputs are restored before reaching the client**. That includes placeholders inside tool/function-call arguments as well as ordinary assistant text. Tool results or other sensitive tool content sent back to the model in a later request are scanned and redacted again before forwarding.
@@ -141,7 +141,7 @@ For OpenAI Responses with a string `input`, the notice is prefixed to that strin
 
 `text/event-stream` responses are restored incrementally with downstream backpressure.
 
-The stream layer understands text/delta channels used by OpenAI Chat, OpenAI Responses, and Anthropic Messages, including tool/function argument deltas and common reasoning/text delta fields. A partial prefix of a possible `{{reduct:...}}` token is retained until enough subsequent SSE data proves that it is either a complete known token or cannot become one.
+The stream layer understands text/delta channels used by OpenAI Chat, OpenAI Responses, and Anthropic Messages, including tool/function argument deltas and common reasoning/text delta fields. A partial prefix of a possible `{{Redact:...}}` token is retained until enough subsequent SSE data proves that it is either a complete known token or cannot become one.
 
 This means a token split across HTTP chunks **and** across logical SSE events is restored correctly. The tests exhaust every possible split position of a 75-byte placeholder and also exercise one-byte transport chunks.
 
@@ -181,10 +181,10 @@ export default {
 Recommended production variable:
 
 ```text
-REDUCT_ALLOWED_HOSTS=api.openai.com,api.anthropic.com,my-provider.example
+REDACT_ALLOWED_HOSTS=api.openai.com,api.anthropic.com,my-provider.example
 ```
 
-Without `REDUCT_ALLOWED_HOSTS`, the proxy accepts arbitrary `http://` and `https://` upstream hosts because arbitrary upstream routing is part of the design. Do not expose an unrestricted instance publicly unless you intentionally want an open relay.
+Without `REDACT_ALLOWED_HOSTS`, the proxy accepts arbitrary `http://` and `https://` upstream hosts because arbitrary upstream routing is part of the design. Do not expose an unrestricted instance publicly unless you intentionally want an open relay.
 
 ## Deno
 
@@ -226,16 +226,16 @@ curl -N \
 
 | Variable | Default | Meaning |
 |---|---:|---|
-| `REDUCT_ALLOWED_HOSTS` | unset | comma-separated hostname allow-list; unset allows arbitrary upstreams |
-| `REDUCT_MAX_BODY_BYTES` | 16 MiB | maximum request body buffered for safe JSON redaction |
-| `REDUCT_MAX_REDACTIONS` | 16384 | maximum unique plaintext replacements in one request |
-| `REDUCT_CORS_ORIGIN` | `*` | `Access-Control-Allow-Origin` value |
+| `REDACT_ALLOWED_HOSTS` | unset | comma-separated hostname allow-list; unset allows arbitrary upstreams |
+| `REDACT_MAX_BODY_BYTES` | 16 MiB | maximum request body buffered for safe JSON redaction |
+| `REDACT_MAX_REDACTIONS` | 16384 | maximum unique plaintext replacements in one request |
+| `REDACT_CORS_ORIGIN` | `*` | `Access-Control-Allow-Origin` value |
 | `HOST` | `127.0.0.1` | Node local adapter only |
 | `PORT` | `8787` | Node local adapter only |
 
 Non-empty request bodies must be JSON. This is intentional fail-closed behavior: an unknown binary or plaintext body is rejected with 415 instead of being forwarded without redaction.
 
-Large base64 image/audio payload fields and URL/control fields are excluded from text redaction to avoid corrupting multimodal requests. The defaults are intentionally generous for large LLM payloads; on memory-constrained deployments, lower `REDUCT_MAX_BODY_BYTES` and/or `REDUCT_MAX_REDACTIONS` explicitly.
+Large base64 image/audio payload fields and URL/control fields are excluded from text redaction to avoid corrupting multimodal requests. The defaults are intentionally generous for large LLM payloads; on memory-constrained deployments, lower `REDACT_MAX_BODY_BYTES` and/or `REDACT_MAX_REDACTIONS` explicitly.
 
 ## Tests
 
@@ -250,7 +250,7 @@ The suite covers:
 - email, phone, `sk-`, PRC ID, Luhn bank card, and representative Gitleaks-compatible provider rules
 - repeated-value token reuse and exact restoration
 - OpenAI Chat, OpenAI Responses, and Anthropic Messages request bodies
-- Reduct Notice placement
+- Redact Notice placement
 - authorization/API-key forwarding and stripping of proxy-only identity headers
 - JSON fail-closed behavior and redaction limits
 - real local HTTP upstream integration
@@ -272,7 +272,7 @@ This relay reduces what an untrusted upstream sees, but it is not a cryptographi
 
 - a model can modify a placeholder instead of echoing it, in which case it cannot be restored;
 - a detector false negative is still sent upstream;
-- an unrestricted deployment is an open proxy unless you set `REDUCT_ALLOWED_HOSTS` or protect the Worker externally;
+- an unrestricted deployment is an open proxy unless you set `REDACT_ALLOWED_HOSTS` or protect the Worker externally;
 - runtime salts are isolate-local, not globally stable across Cloudflare/Deno instances;
 - replacement state is intentionally request-local, so a placeholder from an older request cannot be restored later;
 - image/audio binary content is not inspected by this text-focused implementation.
