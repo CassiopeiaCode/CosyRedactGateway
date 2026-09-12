@@ -107,3 +107,26 @@ test("Responses array format injects notice into last user item only", async () 
   assert.match(seen.input[2].content[0].text,/^Sensitive values are redacted before forwarding/);
   assert(!seen.input[2].content[0].text.includes("a@example.com"));
 });
+
+test("nested JSON string arguments are recursively redacted", async () => {
+  let seen;
+  const fetchImpl = async (_url, init) => {
+    seen = JSON.parse(init.body);
+    return new Response(JSON.stringify({ ok: true }), { headers: { "content-type": "application/json" } });
+  };
+  await handleRequest(req("https://p/E$https://api.example/v1/chat/completions", {
+    messages: [{ role: "user", content: "call tool" }],
+    tool_calls: [{ function: { name: "lookup", arguments: JSON.stringify({ email: "alice@example.com" }) } }]
+  }), {}, { fetchImpl, salt: "fixed" });
+  const nested = JSON.parse(seen.tool_calls[0].function.arguments);
+  assert.match(nested.email, TOKEN);
+});
+
+test("nested JSON string parsing can be disabled", async () => {
+  let seen;
+  const fetchImpl = async (_url, init) => { seen = JSON.parse(init.body); return new Response("ok"); };
+  await handleRequest(req("https://p/E$https://api.example/v1/responses", {
+    input: JSON.stringify({ email: "alice@example.com" })
+  }), { REDACT_PARSE_NESTED_JSON: "false" }, { fetchImpl, salt: "fixed" });
+  assert.match(seen.input, TOKEN);
+});

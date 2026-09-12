@@ -507,9 +507,10 @@ export function findSensitiveSpans(text, flags) {
 export class RedactionLimitError extends Error {}
 
 export class RedactionContext {
-  constructor({ salt = RUNTIME_SALT, maxRedactions = DEFAULT_MAX_REDACTIONS } = {}) {
+  constructor({ salt = RUNTIME_SALT, maxRedactions = DEFAULT_MAX_REDACTIONS, parseNestedJson = true } = {}) {
     this.salt = salt;
     this.maxRedactions = maxRedactions;
+    this.parseNestedJson = parseNestedJson;
     this.rawToToken = new Map();
     this.tokenToRaw = new Map();
   }
@@ -551,7 +552,18 @@ function shouldSkipString(path) {
 }
 
 export async function redactJson(value, ctx, flags, path = []) {
-  if (typeof value === "string") return shouldSkipString(path) ? value : ctx.redactText(value, flags);
+  if (typeof value === "string") {
+    if (!shouldSkipString(path) && ctx.parseNestedJson && /^[\s]*[\[{]/.test(value)) {
+      try {
+        const nested = JSON.parse(value);
+        if (nested && typeof nested === "object") {
+          const redacted = await redactJson(nested, ctx, flags, path.concat("<nested-json>"));
+          return JSON.stringify(redacted);
+        }
+      } catch { /* Treat non-JSON strings as ordinary text. */ }
+    }
+    return shouldSkipString(path) ? value : ctx.redactText(value, flags);
+  }
   if (Array.isArray(value)) {
     const out = [];
     for (let i=0;i<value.length;i++) out.push(await redactJson(value[i], ctx, flags, path.concat(String(i))));
@@ -866,7 +878,8 @@ export async function handleRequest(request, env = {}, options = {}) {
 
   const maxBody=intSetting(env?.REDACT_MAX_BODY_BYTES,DEFAULT_MAX_BODY_BYTES);
   const maxRedactions=intSetting(env?.REDACT_MAX_REDACTIONS,DEFAULT_MAX_REDACTIONS);
-  const ctx=new RedactionContext({salt:options.salt || RUNTIME_SALT,maxRedactions});
+  const parseNestedJson = !/^(0|false|no|off)$/i.test(String(env?.REDACT_PARSE_NESTED_JSON ?? "true"));
+  const ctx=new RedactionContext({salt:options.salt || RUNTIME_SALT,maxRedactions,parseNestedJson});
   const headers=filteredRequestHeaders(request.headers);
   let body;
   if (request.method !== "GET" && request.method !== "HEAD") {

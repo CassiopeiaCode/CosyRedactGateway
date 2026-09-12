@@ -186,6 +186,8 @@ REDACT_ALLOWED_HOSTS=api.openai.com,api.anthropic.com,my-provider.example
 
 Private, loopback, link-local, and metadata upstream addresses are blocked by default after the upstream host is parsed and normalized. For a deliberately trusted private deployment, this check can be disabled explicitly with `REDACT_BLOCK_PRIVATE_UPSTREAMS=false`; keep it enabled for public or otherwise untrusted gateways.
 
+JSON-looking string fields (including tool-call `arguments`) are parsed and redacted recursively by default, then serialized back to a string. Set `REDACT_PARSE_NESTED_JSON=false` to keep the legacy text-only behavior.
+
 Without `REDACT_ALLOWED_HOSTS`, the proxy accepts arbitrary `http://` and `https://` upstream hosts because arbitrary upstream routing is part of the design. Do not expose an unrestricted instance publicly unless you intentionally want an open relay.
 
 ## Deno
