@@ -50,7 +50,8 @@ function isForbiddenUpstreamHost(hostname) {
   if (host === "localhost" || host.endsWith(".localhost")) return true;
   if (host === "::1" || host === "::" || /^0*:0*:0*:0*:0*:0*:0*:0*1$/.test(host)) return true;
   if (/^fe80:/i.test(host) || /^f[cd][0-9a-f]{2}:/i.test(host)) return true;
-  const v4 = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  const mapped = host.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/i);
+  const v4 = (mapped ? mapped[1] : host).match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
   if (v4) {
     const [a, b] = v4.slice(1).map(Number);
     if (a === 10 || a === 127 || a === 0) return true;
@@ -61,7 +62,7 @@ function isForbiddenUpstreamHost(hostname) {
   return false;
 }
 
-export function parseProxyTarget(requestUrl) {
+export function parseProxyTarget(requestUrl, { blockPrivate = true } = {}) {
   const u = new URL(requestUrl);
   const routed = u.pathname + u.search;
   const dollar = routed.indexOf("$");
@@ -72,7 +73,7 @@ export function parseProxyTarget(requestUrl) {
   const upstream = new URL(upstreamText);
   if (upstream.protocol !== "https:" && upstream.protocol !== "http:") throw new Error("Only http/https upstream URLs are supported");
   if (upstream.username || upstream.password) throw new Error("Upstream URLs containing userinfo are not supported");
-  if (isForbiddenUpstreamHost(upstream.hostname)) throw new Error("Upstream URLs targeting private, loopback, or link-local addresses are not supported");
+  if (blockPrivate && isForbiddenUpstreamHost(upstream.hostname)) throw new Error("Upstream URLs targeting private, loopback, or link-local addresses are not supported");
   return { flags: parseFlags(flagText), flagText: flagText || ALL_FLAG_LETTERS, upstream };
 }
 
@@ -858,7 +859,8 @@ export async function handleRequest(request, env = {}, options = {}) {
     return new Response(JSON.stringify({ok:true,service:"cosy-redact-gateway",route:"/<flags>$<upstream-url>",flags:ALL_FLAG_LETTERS,defaultAll:true}),{headers:withCors({"content-type":"application/json; charset=utf-8"},corsOrigin)});
   }
   let target;
-  try { target=parseProxyTarget(request.url); } catch(e) { return jsonError(400,e.message); }
+  const blockPrivate = !/^(0|false|no|off)$/i.test(String(env?.REDACT_BLOCK_PRIVATE_UPSTREAMS ?? "true"));
+  try { target=parseProxyTarget(request.url, { blockPrivate }); } catch(e) { return jsonError(400,e.message); }
   if (!target) return jsonError(404,"Expected /<flags>$<upstream-url>");
   if (!allowedHost(target.upstream,env)) return jsonError(403,"Upstream host is not in REDACT_ALLOWED_HOSTS");
 
