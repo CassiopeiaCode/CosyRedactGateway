@@ -184,10 +184,6 @@ Recommended production variable:
 REDACT_ALLOWED_HOSTS=api.openai.com,api.anthropic.com,my-provider.example
 ```
 
-Private, loopback, link-local, and metadata upstream addresses are blocked by default after the upstream host is parsed and normalized. For a deliberately trusted private deployment, this check can be disabled explicitly with `REDACT_BLOCK_PRIVATE_UPSTREAMS=false`; keep it enabled for public or otherwise untrusted gateways.
-
-JSON-looking string fields (including tool-call `arguments`) are parsed and redacted recursively by default, then serialized back to a string. Set `REDACT_PARSE_NESTED_JSON=false` to keep the legacy text-only behavior.
-
 Without `REDACT_ALLOWED_HOSTS`, the proxy accepts arbitrary `http://` and `https://` upstream hosts because arbitrary upstream routing is part of the design. Do not expose an unrestricted instance publicly unless you intentionally want an open relay.
 
 ## Deno
@@ -231,11 +227,15 @@ curl -N \
 | Variable | Default | Meaning |
 |---|---:|---|
 | `REDACT_ALLOWED_HOSTS` | unset | comma-separated hostname allow-list; unset allows arbitrary upstreams |
+| `REDACT_BLOCK_PRIVATE_UPSTREAMS` | `true` | block private, loopback, link-local, and metadata upstream addresses after host normalization; set to `false` only for a trusted private deployment |
+| `REDACT_PARSE_NESTED_JSON` | `true` | recursively redact JSON-looking string values (including tool-call `arguments`); set to `false` for legacy text-only handling |
 | `REDACT_MAX_BODY_BYTES` | 16 MiB | maximum request body buffered for safe JSON redaction |
 | `REDACT_MAX_REDACTIONS` | 16384 | maximum unique plaintext replacements in one request |
 | `REDACT_CORS_ORIGIN` | `*` | `Access-Control-Allow-Origin` value |
 | `HOST` | `127.0.0.1` | Node local adapter only |
 | `PORT` | `8787` | Node local adapter only |
+
+Private, loopback, link-local, and metadata upstream addresses are blocked by default after the upstream host is parsed and normalized. Disable this only for a deliberately trusted private deployment. JSON-looking string fields are parsed and redacted recursively when possible, then serialized back to strings; this includes tool-call `arguments`.
 
 Non-empty request bodies must be JSON. This is intentional fail-closed behavior: an unknown binary or plaintext body is rejected with 415 instead of being forwarded without redaction.
 
