@@ -1,0 +1,524 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>Cosy Redact Gateway · Rule Inspector</title>
+<style>
+:root{
+  --bg:#0b0d10;--panel:#101318;--panel2:#0d1014;--line:#232932;
+  --text:#e9edf3;--muted:#8b95a3;--red:#ff5d6c;--redbg:rgba(255,93,108,.16);
+  --amber:#e9b949;--amberbg:rgba(233,185,73,.12);--green:#4fd1a1;--blue:#69a7ff;
+}
+*{box-sizing:border-box}
+html,body{margin:0;min-height:100%;background:var(--bg);color:var(--text);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}
+button,input,textarea{font:inherit}
+button{cursor:pointer}
+a{color:inherit;text-decoration:none}
+.wrap{max-width:1440px;margin:auto;padding:20px}
+.hero{display:flex;justify-content:space-between;gap:16px;align-items:flex-start;margin-bottom:14px}
+.brand{display:flex;gap:12px;align-items:flex-start}
+.logo{width:34px;height:34px;border-radius:8px;display:grid;place-items:center;background:#171c23;border:1px solid var(--line);font-size:16px}
+h1{font-size:18px;line-height:1.2;margin:1px 0 5px;letter-spacing:-.02em}
+.sub{color:var(--muted);font-size:12px;line-height:1.5}
+.badges{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.badge{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);background:#0e1217;padding:4px 7px;border-radius:6px;font-size:10px;color:#aab3c0}
+.dot{width:6px;height:6px;border-radius:50%;background:var(--amber)}
+.dot.ok{background:var(--green)}
+.dot.err{background:var(--red)}
+.topActions{display:flex;gap:7px;flex-wrap:wrap}
+.btn{border:1px solid var(--line);background:#141920;color:var(--text);padding:7px 10px;border-radius:7px;font-size:11px}
+.btn:hover{background:#19202a}
+.btn.primary{background:#f2f4f7;color:#111318;border-color:#f2f4f7;font-weight:700}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px}
+.sourceCard{padding:12px;margin-bottom:12px}
+.sourceRow{display:grid;grid-template-columns:minmax(190px,1fr) minmax(260px,2fr) auto;gap:8px;align-items:end}
+.label{font-size:9px;text-transform:uppercase;letter-spacing:.11em;color:#6f7a88;font-weight:800;margin-bottom:5px}
+.field{width:100%;background:#0c0f13;border:1px solid var(--line);color:#dce3eb;padding:8px 9px;border-radius:6px;outline:none;font-size:11px}
+.field:focus{border-color:#46515e}
+.commitMeta{margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;color:var(--muted);font-size:10px}
+.commitSha{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:#cfd7e2;background:#0c1014;border:1px solid var(--line);padding:3px 6px;border-radius:5px}
+.flags{display:flex;gap:6px;flex-wrap:wrap;margin-top:9px}
+.flag{position:relative}
+.flag input{position:absolute;opacity:0}
+.flag label{display:flex;gap:5px;align-items:center;border:1px solid var(--line);background:#0d1116;color:#7f8a99;border-radius:6px;padding:5px 7px;font-size:10px;cursor:pointer}
+.flag input:checked+label{color:#eef2f7;border-color:#414a56;background:#151a21}
+.flagLetter{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:#aeb7c4;font-weight:800}
+.mainGrid{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:12px}
+.work{overflow:hidden}
+.tabs,.sectionHead{display:flex;align-items:center;justify-content:space-between;padding:9px 11px;border-bottom:1px solid var(--line)}
+.tabTitle,.sectionTitle{font-size:11px;font-weight:800}
+.smallActions{display:flex;gap:6px}
+.editorGrid{display:grid;grid-template-columns:1fr 1fr;min-height:360px}
+.pane{min-width:0}
+.pane+.pane{border-left:1px solid var(--line)}
+.paneHead{display:flex;align-items:center;justify-content:space-between;padding:8px 10px;border-bottom:1px solid var(--line);font-size:9px;color:var(--muted)}
+textarea#input{width:100%;height:350px;resize:vertical;border:0;outline:0;background:#0b0e12;color:#e8edf4;padding:13px;font:12px/1.65 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;tab-size:2}
+.visual{height:350px;overflow:auto;padding:13px;background:#0d1014;font:12px/1.65 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;white-space:pre-wrap;overflow-wrap:anywhere}
+.hit{border-radius:3px;padding:1px 0;cursor:pointer;box-decoration-break:clone;-webkit-box-decoration-break:clone}
+.hit.final{background:var(--redbg);color:#ffd4d9;border-bottom:1px solid rgba(255,93,108,.8)}
+.hit.candidate{background:var(--amberbg);color:#f5d889;border-bottom:1px dashed rgba(233,185,73,.65)}
+.hit.protected{background:rgba(105,167,255,.10);color:#b8d5ff;border-bottom:1px solid rgba(105,167,255,.55)}
+.outputBox{border-top:1px solid var(--line);padding:10px}
+.outputCode{max-height:170px;overflow:auto;background:#0b0e12;border:1px solid var(--line);padding:10px;border-radius:7px;color:#bcc6d2;font:10px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre-wrap;overflow-wrap:anywhere}
+.note{font-size:9px;color:#6f7a88;margin-top:6px;line-height:1.45}
+.side{display:flex;flex-direction:column;gap:12px}
+.statCard{padding:10px}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.stat{background:#0d1116;border:1px solid var(--line);border-radius:7px;padding:8px}
+.statNum{font-size:18px;font-weight:800}
+.statName{font-size:8px;color:#788391;text-transform:uppercase;letter-spacing:.08em;margin-top:2px}
+.rules{max-height:330px;overflow:auto;padding:5px}
+.rule{display:grid;grid-template-columns:1fr auto;gap:6px;align-items:center;padding:7px 8px;border-radius:6px;cursor:pointer}
+.rule:hover,.rule.active{background:#151a21}
+.rule.active{outline:1px solid #343d49}
+.ruleName{font:10px/1.25 ui-monospace,SFMono-Regular,Menlo,monospace;color:#c8d0db;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ruleType{font-size:8px;color:#707b89;margin-top:2px}
+.count{min-width:23px;text-align:center;background:#181e26;border:1px solid #28313c;border-radius:999px;padding:2px 5px;font-size:8px;color:#aeb7c4}
+.inspector{padding:10px}
+.inspectEmpty{color:#74808f;font-size:10px;line-height:1.55}
+.inspectValue{font:10px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace;background:#0b0e12;border:1px solid var(--line);border-radius:7px;padding:8px;margin:6px 0;overflow-wrap:anywhere}
+.chips{display:flex;gap:5px;flex-wrap:wrap}
+.chip{font:8px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;padding:4px 6px;border-radius:999px;background:#171d25;border:1px solid #29323d;color:#bcc5d1}
+.chip.red{border-color:rgba(255,93,108,.32);color:#ffc4cb}
+.chip.amber{border-color:rgba(233,185,73,.3);color:#f2d58e}
+.legend{display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:8px;color:#727e8d}
+.legend i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:4px;vertical-align:-1px}
+.legend .l1{background:rgba(255,93,108,.28)}
+.legend .l2{background:rgba(233,185,73,.18);border:1px dashed rgba(233,185,73,.6)}
+.footer{margin-top:12px;color:#626d7a;font-size:9px;line-height:1.5;text-align:center}
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,.65);display:none;align-items:center;justify-content:center;z-index:9}
+.overlay.show{display:flex}
+.modal{width:min(520px,calc(100vw - 32px));padding:16px}
+.error{color:#ff9aa5}
+@media(max-width:980px){.mainGrid{grid-template-columns:1fr}.editorGrid{grid-template-columns:1fr}.pane+.pane{border-left:0;border-top:1px solid var(--line)}.hero{flex-direction:column}.sourceRow{grid-template-columns:1fr}.visual,textarea#input{height:300px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="hero">
+    <div class="brand">
+      <div class="logo">◈</div>
+      <div>
+        <h1>Cosy Redact Gateway · Rule Inspector</h1>
+        <div class="sub">按指定 Git commit 加载真实规则，查看代码与凭据混合文本中的命中结果。</div>
+        <div class="badges">
+          <span class="badge"><span id="statusDot" class="dot"></span><span id="statusText">正在载入 main…</span></span>
+          <span class="badge">规则源：<b id="ruleCount">—</b></span>
+          <span class="badge">执行：浏览器本地</span>
+        </div>
+      </div>
+    </div>
+    <div class="topActions">
+      <button class="btn" id="exampleBtn">测试文本</button>
+      <button class="btn" id="localBtn">载入本地 worker.js</button>
+      <input id="localFile" type="file" accept=".js,.mjs,text/javascript" hidden>
+      <button class="btn primary" id="copyBtn">复制 Redacted 输出</button>
+    </div>
+  </div>
+
+  <div class="card sourceCard">
+    <div class="sourceRow">
+      <div>
+        <div class="label">Repository</div>
+        <div class="field" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">CassiopeiaCode/CosyRedactGateway</div>
+      </div>
+      <div>
+        <div class="label">Commit / branch / tag</div>
+        <input class="field" id="refInput" value="main" spellcheck="false" aria-label="Git ref">
+      </div>
+      <div style="align-self:end"><button class="btn primary" id="loadBtn">解析并载入</button></div>
+    </div>
+    <div class="commitMeta">
+      <span>Resolved SHA</span><span class="commitSha" id="sha">—</span>
+      <span id="commitDate"></span><span id="commitMsg"></span>
+      <a id="sourceLink" href="https://github.com/CassiopeiaCode/CosyRedactGateway/blob/main/worker.js" target="_blank" rel="noreferrer">查看源码 ↗</a>
+    </div>
+    <div class="flags" id="flags">
+      <span class="flag"><input id="fH" data-flag="highEntropy" type="checkbox" checked><label for="fH"><span class="flagLetter">H</span>高熵块</label></span>
+      <span class="flag"><input id="fP" data-flag="phone" type="checkbox" checked><label for="fP"><span class="flagLetter">P</span>手机号</label></span>
+      <span class="flag"><input id="fS" data-flag="secret" type="checkbox" checked><label for="fS"><span class="flagLetter">S</span>Secret</label></span>
+      <span class="flag"><input id="fI" data-flag="identity" type="checkbox" checked><label for="fI"><span class="flagLetter">I</span>身份证</label></span>
+      <span class="flag"><input id="fB" data-flag="bank" type="checkbox" checked><label for="fB"><span class="flagLetter">B</span>银行卡</label></span>
+      <span class="flag"><input id="fE" data-flag="email" type="checkbox" checked><label for="fE"><span class="flagLetter">E</span>Email</label></span>
+      <span class="flag"><input id="fG" data-flag="gitleaks" type="checkbox" checked><label for="fG"><span class="flagLetter">G</span>Gitleaks</label></span>
+    </div>
+  </div>
+
+  <div class="mainGrid">
+    <div class="card work">
+      <div class="tabs">
+        <div>
+          <div class="tabTitle">Inspector</div>
+          <div class="legend" style="margin-top:5px">
+            <span><i class="l1"></i>最终会 redact</span>
+            <span><i class="l2"></i>命中候选，但被更高优先级/重叠规则淘汰</span>
+          </div>
+        </div>
+        <div class="smallActions"><button class="btn" id="clearBtn">清空</button></div>
+      </div>
+      <div class="editorGrid">
+        <div class="pane">
+          <div class="paneHead"><span>INPUT</span><span id="charCount">0 chars</span></div>
+          <textarea id="input" spellcheck="false" placeholder="在这里粘贴任意文本…"></textarea>
+        </div>
+        <div class="pane">
+          <div class="paneHead"><span>VISUAL MATCHES</span><span id="selectedCount">0 redactions</span></div>
+          <div class="visual" id="visual"></div>
+        </div>
+      </div>
+      <div class="outputBox">
+        <div class="paneHead" style="padding:0 0 8px;border:0">
+          <span>GATEWAY-FORMAT OUTPUT</span>
+          <span>使用本页 session salt；真实部署 token digest 会不同</span>
+        </div>
+        <div class="outputCode" id="output"></div>
+        <div class="note">仓库的 <code>RedactionContext</code> 使用 SHA-256(raw + runtime salt) 生成 <code>{{Redact:…}}</code>。本页调用同一 commit 的 <code>RedactionContext.redactText()</code>；只把 salt 固定在当前页面 session，便于视觉比较。</div>
+      </div>
+    </div>
+
+    <div class="side">
+      <div class="card statCard">
+        <div class="stats">
+          <div class="stat"><div class="statNum" id="sFinal">0</div><div class="statName">最终 Redactions</div></div>
+          <div class="stat"><div class="statNum" id="sHits">0</div><div class="statName">全部规则命中</div></div>
+          <div class="stat"><div class="statNum" id="sRules">0</div><div class="statName">命中规则数</div></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="sectionHead"><div class="sectionTitle">命中规则</div><button class="btn" id="allRulesBtn">全部</button></div>
+        <div class="rules" id="rules"></div>
+      </div>
+
+      <div class="card">
+        <div class="sectionHead"><div class="sectionTitle">片段解释</div><span style="font-size:9px;color:#72809a">点击高亮片段</span></div>
+        <div class="inspector" id="inspector"><div class="inspectEmpty">点击右侧红色或黄色高亮，即可查看该片段命中的全部规则、最终是否被选中，以及字符范围。</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer">
+    此页面不会把你输入的文本发送给任何 LLM。GitHub 仅用于获取指定 commit 的源码；文本规则分析在浏览器本地完成。<br>
+    若 GitHub 网络不可用，可点击“载入本地 worker.js”使用你本机 checkout 的源码。
+  </div>
+</div>
+
+<div class="overlay" id="overlay"><div class="card modal"><div class="sectionTitle">载入失败</div><div class="sub error" id="errorText" style="margin-top:10px"></div><div style="margin-top:14px;display:flex;justify-content:flex-end"><button class="btn" id="closeModal">关闭</button></div></div></div>
+
+<script>
+(() => {
+"use strict";
+
+const REPO = "CassiopeiaCode/CosyRedactGateway";
+const API = "https://api.github.com/repos/" + REPO;
+const RAW = "https://raw.githubusercontent.com/" + REPO + "/";
+const $ = (s) => document.querySelector(s);
+const $$ = (s) => [...document.querySelectorAll(s)];
+
+const LABELS = {
+  secret: "内置 Secret (S)",
+  email: "内置 Email (E)",
+  identity: "内置中国身份证 (I)",
+  bank: "内置银行卡 / Luhn (B)",
+  phone: "内置手机号 (P)",
+  entropy: "内置高熵块 (H)",
+  gitleaks: "Gitleaks (G)",
+  existing: "已有 Redact token（受保护）"
+};
+
+let moduleApi = null;
+let sourceText = "";
+let currentSha = "";
+let currentMeta = null;
+let activeRule = null;
+let allHits = [];
+let finalSpans = [];
+let protectedHits = [];
+let debounceTimer = null;
+const sessionSalt = (() => {
+  const a = new Uint8Array(32); crypto.getRandomValues(a);
+  return [...a].map(x => x.toString(16).padStart(2,"0")).join("");
+})();
+
+function escapeHtml(v){
+  return String(v).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
+}
+function overlaps(a,b){ return a.start < b.end && a.end > b.start; }
+function flags(){
+  const out = {highEntropy:false,phone:false,secret:false,identity:false,bank:false,email:false,gitleaks:false};
+  $$("#flags input[data-flag]").forEach(x => out[x.dataset.flag] = x.checked);
+  return out;
+}
+function blankFlags(){ return {highEntropy:false,phone:false,secret:false,identity:false,bank:false,email:false,gitleaks:false}; }
+
+function setStatus(kind, text){
+  $("#statusText").textContent = text;
+  $("#statusDot").className = "dot" + (kind==="ok" ? " ok" : kind==="err" ? " err" : "");
+}
+function showError(msg){
+  $("#errorText").textContent = msg;
+  $("#overlay").classList.add("show");
+}
+$("#closeModal").onclick = () => $("#overlay").classList.remove("show");
+
+async function resolveRef(ref){
+  const clean = ref.trim() || "main";
+  if (/^[0-9a-f]{40}$/i.test(clean)) {
+    try {
+      const r = await fetch(`${API}/commits/${clean}`, {headers:{"Accept":"application/vnd.github+json"}});
+      if (r.ok) return await r.json();
+    } catch {}
+    return {sha:clean, commit:{author:{date:""}, message:"Pinned commit"}};
+  }
+  const r = await fetch(`${API}/commits/${encodeURIComponent(clean)}`, {
+    headers: {"Accept":"application/vnd.github+json"}
+  });
+  if (!r.ok) throw new Error(`GitHub commit API 返回 ${r.status} ${r.statusText}`);
+  return await r.json();
+}
+
+function instrumentSource(src){
+  // The gateway intentionally keeps these helpers private. For this read-only visualizer
+  // we append exports without changing their implementation.
+  return src + `
+export {
+  collectGitleakSpans as __visual_collectGitleakSpans,
+  GITLEAK_RULES as __visual_GITLEAK_RULES,
+  shannonEntropy as __visual_shannonEntropy
+};
+`;
+}
+
+async function importWorker(src){
+  const blob = new Blob([instrumentSource(src)], {type:"text/javascript"});
+  const url = URL.createObjectURL(blob);
+  try { return await import(url + "#" + Date.now()); }
+  finally { setTimeout(() => URL.revokeObjectURL(url), 2500); }
+}
+
+async function loadFromGitHub(){
+  const ref = $("#refInput").value.trim() || "main";
+  setStatus("loading", `正在解析 ${ref}…`);
+  $("#loadBtn").disabled = true;
+  try {
+    const meta = await resolveRef(ref);
+    const sha = meta.sha;
+    setStatus("loading", `正在载入 ${sha.slice(0,8)}…`);
+    const rawUrl = `${RAW}${sha}/worker.js`;
+    const r = await fetch(rawUrl, {cache:"no-store"});
+    if (!r.ok) throw new Error(`worker.js 获取失败：${r.status} ${r.statusText}`);
+    const src = await r.text();
+    const mod = await importWorker(src);
+    if (typeof mod.findSensitiveSpans !== "function" || typeof mod.RedactionContext !== "function")
+      throw new Error("这个 commit 的 worker.js 没有预期的 findSensitiveSpans / RedactionContext 导出。");
+
+    moduleApi = mod; sourceText = src; currentSha = sha; currentMeta = meta;
+    $("#sha").textContent = sha;
+    const date = meta.commit?.author?.date || meta.commit?.committer?.date || "";
+    $("#commitDate").textContent = date ? new Date(date).toLocaleString() : "";
+    const msg = (meta.commit?.message || "").split("\n")[0];
+    $("#commitMsg").textContent = msg ? "· " + msg : "";
+    $("#sourceLink").href = `https://github.com/${REPO}/blob/${sha}/worker.js`;
+    const count = mod.GITLEAK_PORTABLE_RULE_COUNT ?? mod.__visual_GITLEAK_RULES?.length ?? "—";
+    $("#ruleCount").textContent = `${count} portable Gitleaks rules`;
+    setStatus("ok", `已绑定 commit ${sha.slice(0,8)}`);
+    await analyze();
+  } catch (e) {
+    console.error(e);
+    setStatus("err","载入失败");
+    showError(`${e?.message || e}\n\n可尝试“载入本地 worker.js”，页面会直接执行你选择的源码。`);
+  } finally {
+    $("#loadBtn").disabled = false;
+  }
+}
+
+async function loadLocalFile(file){
+  try {
+    setStatus("loading","正在载入本地 worker.js…");
+    const src = await file.text();
+    const mod = await importWorker(src);
+    if (typeof mod.findSensitiveSpans !== "function") throw new Error("文件中找不到 findSensitiveSpans 导出。");
+    moduleApi = mod; sourceText = src; currentSha = "LOCAL"; currentMeta = null;
+    $("#sha").textContent = "LOCAL FILE";
+    $("#commitDate").textContent = "";
+    $("#commitMsg").textContent = "· " + file.name;
+    $("#sourceLink").href = "#";
+    $("#ruleCount").textContent = `${mod.GITLEAK_PORTABLE_RULE_COUNT ?? mod.__visual_GITLEAK_RULES?.length ?? "—"} portable Gitleaks rules`;
+    setStatus("ok","已载入本地源码");
+    await analyze();
+  } catch(e) {
+    console.error(e); setStatus("err","本地源码载入失败"); showError(e?.message || String(e));
+  }
+}
+
+function categoryHits(text, key, type, ruleId){
+  const f = blankFlags(); f[key] = true;
+  const arr = moduleApi.findSensitiveSpans(text, f) || [];
+  return arr.map(x => ({
+    ...x, type: x.type || type, ruleId: ruleId,
+    ruleLabel: LABELS[x.type || type] || ruleId, source:"builtin"
+  }));
+}
+
+function collectAllHits(text, enabled){
+  const hits = [];
+  if (enabled.secret) hits.push(...categoryHits(text,"secret","secret","builtin:secret"));
+  if (enabled.email) hits.push(...categoryHits(text,"email","email","builtin:email"));
+  if (enabled.identity) hits.push(...categoryHits(text,"identity","identity","builtin:identity"));
+  if (enabled.bank) hits.push(...categoryHits(text,"bank","bank","builtin:bank"));
+  if (enabled.phone) hits.push(...categoryHits(text,"phone","phone","builtin:phone"));
+  if (enabled.highEntropy) hits.push(...categoryHits(text,"highEntropy","entropy","builtin:high-entropy"));
+
+  if (enabled.gitleaks && typeof moduleApi.__visual_collectGitleakSpans === "function") {
+    for (const h of moduleApi.__visual_collectGitleakSpans(text)) {
+      hits.push({...h, ruleId:h.ruleId || "gitleaks:unknown", ruleLabel:h.ruleId || "Gitleaks", source:"gitleaks"});
+    }
+  } else if (enabled.gitleaks) {
+    // Older/future source shape fallback: still use exported final detector.
+    const f = blankFlags(); f.gitleaks = true;
+    for (const h of (moduleApi.findSensitiveSpans(text,f)||[])) {
+      hits.push({...h, ruleId:h.ruleId || "gitleaks", ruleLabel:h.ruleId || "Gitleaks", source:"gitleaks"});
+    }
+  }
+  return hits;
+}
+
+function collectProtected(text){
+  const out=[], re=/\{\{Redact:[a-f0-9]{64}\}\}/g; let m;
+  while((m=re.exec(text))) out.push({start:m.index,end:m.index+m[0].length,type:"existing",ruleId:"protected:existing-redact-token",ruleLabel:LABELS.existing,source:"protected"});
+  return out;
+}
+
+function ruleKey(h){ return h.ruleId || `builtin:${h.type}`; }
+
+function renderRules(){
+  const box=$("#rules");
+  const counts=new Map();
+  for(const h of allHits){
+    const k=ruleKey(h);
+    if(!counts.has(k)) counts.set(k,{count:0, type:h.type, label:h.ruleLabel || k});
+    counts.get(k).count++;
+  }
+  const entries=[...counts.entries()].sort((a,b)=>b[1].count-a[1].count || a[0].localeCompare(b[0]));
+  $("#sRules").textContent=entries.length;
+  if(!entries.length){ box.innerHTML='<div class="inspectEmpty" style="padding:12px">当前文本没有命中任何已启用规则。</div>'; return; }
+  box.innerHTML=entries.map(([k,v])=>`
+    <div class="rule ${activeRule===k?"active":""}" data-rule="${escapeHtml(k)}" title="${escapeHtml(k)}">
+      <div><div class="ruleName">${escapeHtml(k)}</div><div class="ruleType">${escapeHtml(v.type==="gitleaks" ? "Gitleaks portable rule" : v.label)}</div></div>
+      <div class="count">${v.count}</div>
+    </div>`).join("");
+  box.querySelectorAll(".rule").forEach(el => el.onclick=()=>{
+    const k=el.dataset.rule;
+    activeRule = activeRule===k ? null : k;
+    renderRules(); renderVisual($("#input").value);
+  });
+}
+
+function selectedFor(range){
+  return finalSpans.some(s=>overlaps(s,range));
+}
+function renderVisual(text){
+  const box=$("#visual");
+  if(!text){ box.innerHTML='<span style="color:#526078">输入文本后，这里会显示逐字符规则命中。</span>'; return; }
+  const displayHits=[...allHits,...protectedHits];
+  const pts=new Set([0,text.length]);
+  for(const h of displayHits){ pts.add(Math.max(0,h.start));pts.add(Math.min(text.length,h.end)); }
+  for(const s of finalSpans){ pts.add(Math.max(0,s.start));pts.add(Math.min(text.length,s.end)); }
+  const p=[...pts].sort((a,b)=>a-b);
+  let html="";
+  for(let i=0;i<p.length-1;i++){
+    const a=p[i],b=p[i+1]; if(b<=a)continue;
+    const seg={start:a,end:b};
+    const hs=displayHits.filter(h=>h.start<=a && h.end>=b);
+    const isFinal=selectedFor(seg);
+    const isProtected=hs.some(h=>h.source==="protected");
+    const matchesFilter=!activeRule || hs.some(h=>ruleKey(h)===activeRule);
+    const raw=text.slice(a,b);
+    if(!hs.length || !matchesFilter){
+      html+=escapeHtml(raw); continue;
+    }
+    const cls=isProtected?"protected":isFinal?"final":"candidate";
+    const keys=[...new Set(hs.map(ruleKey))];
+    const title=keys.join("\n");
+    html+=`<span class="hit ${cls}" data-start="${a}" data-end="${b}" title="${escapeHtml(title)}">${escapeHtml(raw)}</span>`;
+  }
+  box.innerHTML=html;
+  box.querySelectorAll(".hit").forEach(el=>el.onclick=()=>inspectSegment(text,Number(el.dataset.start),Number(el.dataset.end)));
+}
+
+function inspectSegment(text,start,end){
+  const range={start,end};
+  const hs=[...allHits,...protectedHits].filter(h=>overlaps(h,range));
+  const final=finalSpans.filter(s=>overlaps(s,range));
+  const exactText=text.slice(start,end);
+  $("#inspector").innerHTML=`
+    <div class="label">Fragment</div>
+    <div class="inspectValue">${escapeHtml(exactText)}</div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;font-size:10px;color:#8290aa;margin-bottom:10px">
+      <span>range <b style="color:#d2dcf0">${start}–${end}</b></span>
+      <span>${final.length ? '<b style="color:#ff8794">最终会 redact</b>' : '<b style="color:#ffd07a">仅候选命中</b>'}</span>
+    </div>
+    <div class="label">Rules that hit this fragment</div>
+    <div class="chips">${hs.map(h=>`<span class="chip ${h.source==="protected"?"":final.length?"red":"amber"}">${escapeHtml(ruleKey(h))}</span>`).join("") || '<span class="chip">none</span>'}</div>
+    ${final.length?`<div class="label" style="margin-top:13px">Selected span(s)</div><div class="chips">${final.map(s=>`<span class="chip red">${escapeHtml((s.ruleId||s.type)+"")} · ${s.start}–${s.end}</span>`).join("")}</div>`:""}
+  `;
+}
+
+async function analyze(){
+  const text=$("#input").value;
+  $("#charCount").textContent=`${text.length} chars`;
+  if(!moduleApi){
+    $("#visual").innerHTML='<span style="color:#526078">等待 worker.js 载入…</span>';
+    $("#output").textContent="";
+    return;
+  }
+  try{
+    const enabled=flags();
+    allHits=collectAllHits(text,enabled);
+    protectedHits=collectProtected(text);
+    finalSpans=moduleApi.findSensitiveSpans(text,enabled) || [];
+
+    $("#selectedCount").textContent=`${finalSpans.length} redactions`;
+    $("#sFinal").textContent=finalSpans.length;
+    $("#sHits").textContent=allHits.length;
+    renderRules();
+    renderVisual(text);
+
+    const ctx=new moduleApi.RedactionContext({salt:sessionSalt,maxRedactions:16384,parseNestedJson:true});
+    $("#output").textContent = await ctx.redactText(text,enabled);
+  }catch(e){
+    console.error(e);
+    $("#visual").innerHTML=`<span class="error">${escapeHtml(e?.stack||e)}</span>`;
+    $("#output").textContent="";
+  }
+}
+
+function scheduleAnalyze(){
+  clearTimeout(debounceTimer); debounceTimer=setTimeout(analyze,100);
+}
+
+const SAMPLE = "// Cosy Redact Gateway — developer / DevOps mixed-code test\n// 所有凭据均为合成值。重点：凭据夹在真实代码、配置、命令和日志里。\n// 普通随机内联代码片段用于观察误判，不单独设置 changeme/sample 一类“题目”。\n\n// 1) JavaScript / TypeScript\nconst client = new OpenAI({\n  apiKey: \"sk-proj-7Kp9mQ2xV8sL4nR6tY1uC3dF5gH7Kp9mQ2xV8sL4nR6tY1uC3dF5gH7Kp9mQ2xV8\",\n});\n\nconst headers = {\n  \"content-type\": \"application/json\",\n  \"authorization\": \"Bearer ZX7cv5BN3ma1SD9fg6HJ4kl2QP8we0RTZX7cv5BN3ma1SD9fg6HJ4kl2QP\",\n  \"x-request-id\": crypto.randomUUID(),\n};\n\nconst retry = Math.min(2 ** attempt * 250, 4000);\nconst cacheKey = `${tenantId}:${userId}:${route}`;\nconst shard = (userId.charCodeAt(0) * 31 + region.length) % 16;\nconst checksum = ((size << 5) - size) ^ 0x9e3779b9;\n\n// 2) Shell / CI\nexport GITHUB_TOKEN=\"ghp_A7bC2dE9fG4hJ6kLm3Np8Qr5St1Uv0WxA7bC2dE9\"\nexport DEPLOY_TOKEN=\"Az7By6Cx5Dw4Ev3Fu2Gt1Hs0Jr9Kq8LpAz7By6Cx5Dw4Ev3F\"\nexport AWS_ACCESS_KEY_ID=\"AKIAJ7M2K5P4Q6R3T7VW\"\nexport AWS_SECRET_ACCESS_KEY=\"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\"\n\ngit push \"https://oauth2:ghp_A7bC2dE9fG4hJ6kLm3Np8Qr5St1Uv0WxA7bC2dE9@github.com/acme/infra.git\" HEAD:main\ncurl -fsS https://api.internal.example/deploy \\\n  -H \"Authorization: Bearer ZX7cv5BN3ma1SD9fg6HJ4kl2QP8we0RTZX7cv5BN3ma1SD9fg6HJ4kl2QP\" \\\n  -H \"X-API-Key: Az7By6Cx5Dw4Ev3Fu2Gt1Hs0Jr9Kq8LpAz7By6Cx5Dw4Ev3F\" \\\n  --data '{\"sha\":\"9f4a6c1\",\"region\":\"us-west-2\"}'\n\n# 普通 shell 代码，不应因为“看起来随机”就轻易命中\nbuild_id=\"$(date +%s)-$RANDOM\"\nartifact=\"dist/app-${GITHUB_SHA::12}.tar.gz\"\nawk '{sum += $3} END {print sum}' access.log\nprintf '%s\\n' \"7f3a91c2\" \"0xdeadbeef\" \"sha256:4d967c\"\n\n// 3) Python\nsession = requests.Session()\nsession.headers.update({\n    \"Authorization\": \"Bearer ZX7cv5BN3ma1SD9fg6HJ4kl2QP8we0RTZX7cv5BN3ma1SD9fg6HJ4kl2QP\",\n    \"X-Trace\": f\"deploy-{int(time.time())}-{os.getpid()}\",\n})\nanthropic = Anthropic(api_key=\"sk-ant-api03-mN7bV2cX9zL4kJ6hG3fD8sA5pO1iU0yTmN7bV2cX9zL4kJ6hG3fD8sA5pO1iU0yTmN7bV2cX9zL4kJ6hG3fD\")\n\ndef stable_bucket(name: str) -> int:\n    return sum((i + 1) * ord(ch) for i, ch in enumerate(name)) % 97\n\nregex = re.compile(r\"^[a-z0-9][a-z0-9._-]{2,63}$\")\nsentinel = \"2f0c9e7a-13bd-4c67-8bca-92d101ff0a31\"\n\n// 4) Docker / compose / env\nservices:\n  api:\n    image: ghcr.io/acme/api:9f4a6c1\n    environment:\n      OPENAI_API_KEY: \"sk-proj-7Kp9mQ2xV8sL4nR6tY1uC3dF5gH7Kp9mQ2xV8sL4nR6tY1uC3dF5gH7Kp9mQ2xV8\"\n      GITHUB_TOKEN: \"ghp_A7bC2dE9fG4hJ6kLm3Np8Qr5St1Uv0WxA7bC2dE9\"\n      JWT: \"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJkZXZvcHMiLCJyb2xlIjoiYWRtaW4ifQ.AbCdEfGhIjKlMnOpQrStUvWxYz0123456789_-AbCdE\"\n      SESSION_SECRET: \"Az7By6Cx5Dw4Ev3Fu2Gt1Hs0Jr9Kq8LpAz7By6Cx5Dw4Ev3F\"\n    labels:\n      com.acme.revision: \"9f4a6c1\"\n      com.acme.build-hash: \"a3d72f99b6e14f0c\"\n\n// 5) Kubernetes\napiVersion: v1\nkind: Secret\nmetadata:\n  name: prod-api\nstringData:\n  slack-token: \"xoxb-123456789012-234567890123-AbCdEfGhIjKlMnOpQrStUvWx\"\n  vault-token: \"hvs.AbCdEfGhIjKlMnOpQrStUvWxYz0123456789_-AbCdEfGhIjKlMnOpQrStUvWxYz01234567\"\n  deploy-token: \"Az7By6Cx5Dw4Ev3Fu2Gt1Hs0Jr9Kq8LpAz7By6Cx5Dw4Ev3F\"\n---\napiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: api\nspec:\n  template:\n    metadata:\n      annotations:\n        checksum/config: \"44d15f7ae2a4a3f26d4b\"\n    spec:\n      containers:\n        - name: api\n          image: ghcr.io/acme/api:9f4a6c1\n\n# 6) Terraform / HCL\nvariable \"region\" {\n  default = \"us-west-2\"\n}\n\nprovider \"aws\" {\n  region     = var.region\n  access_key = \"AKIAJ7M2K5P4Q6R3T7VW\"\n  secret_key = \"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\"\n}\n\nresource \"random_id\" \"deploy\" {\n  byte_length = 8\n}\n\nlocals {\n  name = \"edge-${var.region}-${random_id.deploy.hex}\"\n}\n\n// 7) Go\nreq, _ := http.NewRequest(\"POST\", endpoint, bytes.NewReader(body))\nreq.Header.Set(\"Authorization\", \"Bearer ZX7cv5BN3ma1SD9fg6HJ4kl2QP8we0RTZX7cv5BN3ma1SD9fg6HJ4kl2QP\")\nreq.Header.Set(\"X-API-Key\", \"Az7By6Cx5Dw4Ev3Fu2Gt1Hs0Jr9Kq8LpAz7By6Cx5Dw4Ev3F\")\ntimeout := 3*time.Second + time.Duration(retry)*250*time.Millisecond\nmask := uint64(0x9e3779b97f4a7c15)\n\n// 8) SQL / migration\nCREATE INDEX CONCURRENTLY idx_events_created_at\nON events (created_at DESC)\nWHERE deleted_at IS NULL;\n\nINSERT INTO deploy_audit(sha, actor, env)\nVALUES ('9f4a6c1', 'ci-bot', 'prod');\n\n-- 连接串里夹凭据\n-- postgresql://deploy:Az7By6Cx5Dw4Ev3Fu2Gt1Hs0Jr9Kq8LpAz7By6Cx5Dw4Ev3F@db.internal:5432/app\n\n// 9) JSON / application config\n{\n  \"provider\": \"openai\",\n  \"apiKey\": \"sk-proj-7Kp9mQ2xV8sL4nR6tY1uC3dF5gH7Kp9mQ2xV8sL4nR6tY1uC3dF5gH7Kp9mQ2xV8\",\n  \"jwt\": \"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJkZXZvcHMiLCJyb2xlIjoiYWRtaW4ifQ.AbCdEfGhIjKlMnOpQrStUvWxYz0123456789_-AbCdE\",\n  \"featureFlags\": {\n    \"fastPath\": true,\n    \"bucketCount\": 64\n  },\n  \"build\": {\n    \"sha\": \"9f4a6c1\",\n    \"contentHash\": \"b6c2f7a94e31d0aa\"\n  }\n}\n\n// 10) 日志：真实凭据和普通 request/build id 混在一起\n2026-09-13T11:04:33Z INFO request_id=req_7f3a91c2 route=/deploy status=202\n2026-09-13T11:04:33Z DEBUG Authorization=\"Bearer ZX7cv5BN3ma1SD9fg6HJ4kl2QP8we0RTZX7cv5BN3ma1SD9fg6HJ4kl2QP\"\n2026-09-13T11:04:33Z DEBUG x-api-key=\"Az7By6Cx5Dw4Ev3Fu2Gt1Hs0Jr9Kq8LpAz7By6Cx5Dw4Ev3F\"\n2026-09-13T11:04:34Z INFO image=ghcr.io/acme/api:9f4a6c1 digest=sha256:4d967c8ef12a77d3\n2026-09-13T11:04:34Z INFO trace=4bf92f3577b34da6a3ce929d0e0e4736 span=00f067aa0ba902b7\n\n// 11) 已经 redact 的 token：应保持受保护\n{{Redact:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}}\n\n// 12) 少量隐私覆盖，不作为测试重点\noncall=devops@example.org\nphone=13800138000\n";
+
+$("#input").value=SAMPLE;
+$("#input").addEventListener("input",scheduleAnalyze);
+$$("#flags input").forEach(x=>x.addEventListener("change",analyze));
+$("#loadBtn").onclick=loadFromGitHub;
+$("#refInput").addEventListener("keydown",e=>{if(e.key==="Enter")loadFromGitHub()});
+$("#clearBtn").onclick=()=>{$("#input").value="";activeRule=null;analyze()};
+$("#exampleBtn").onclick=()=>{$("#input").value=SAMPLE;activeRule=null;analyze()};
+$("#allRulesBtn").onclick=()=>{activeRule=null;renderRules();renderVisual($("#input").value)};
+$("#copyBtn").onclick=async()=>{
+  try{await navigator.clipboard.writeText($("#output").textContent);const b=$("#copyBtn");const t=b.textContent;b.textContent="已复制 ✓";setTimeout(()=>b.textContent=t,1200)}
+  catch{showError("浏览器没有允许剪贴板访问。你可以手动选择下方输出文本复制。")}
+};
+$("#localBtn").onclick=()=>$("#localFile").click();
+$("#localFile").addEventListener("change",e=>{const f=e.target.files?.[0];if(f)loadLocalFile(f)});
+
+loadFromGitHub();
+})();
+</script>
+<script type="module" src="https://static.cloudflareinsights.com/beacon.min.js/v31edd6df95cf4e85bb4c19e7a9bdbcba1788362987495" integrity="sha512-iIg7k2xntmwu6/uSb5tpc/hySgZc4eoL31yB29W6tJFo2akwjPWcEqnCEdJvGexCL0KEQwVYv5BlowfhVz26hg==" data-cf-beacon='{"version":"2024.11.0","token":"7939e04a4baf43c8b86a560f74aac60e","spa":2}' crossorigin="anonymous"></script>
+</body>
+</html>
