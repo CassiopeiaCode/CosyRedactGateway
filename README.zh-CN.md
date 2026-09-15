@@ -1,98 +1,126 @@
 <p align="center">
   <picture>
-    <source media="(max-width: 600px)" srcset="docs/readme/hero-mobile.svg">
-    <img src="docs/readme/hero.svg" alt="Cosy Redact Gateway — 使用需要的 AI，减少不必要的敏感信息暴露。" width="1040">
+    <source media="(max-width: 600px)" srcset="docs/readme/hero-mobile-zh.svg">
+    <img src="docs/readme/hero-zh.svg" alt="代码交给 AI。凭据，不该跟着走。H 启发式 + 已知密钥规则。" width="1040">
   </picture>
 </p>
 
 <h1 align="center">Cosy Redact Gateway</h1>
 
-<p align="center"><strong>用你需要的上游模型，保留它不需要知道的秘密。</strong></p>
+<p align="center"><strong>不只防已知密钥，更要识别没有固定格式的随机凭据。</strong></p>
 
 <p align="center">
+  <a href="#h-layer"><img src="docs/readme/badge-h.svg" alt="H：不依赖已知前缀的启发式检测"></a>
+  <a href="#quick-start"><img src="docs/readme/badge-all-on.svg" alt="全部启用：HPSIBEG"></a>
+  <a href="#compatibility"><img src="docs/readme/badge-streaming.svg" alt="JSON 与 SSE 流式还原"></a>
   <a href="LICENSE"><img src="docs/readme/badge-license.svg" alt="MIT 许可证"></a>
-  <a href="worker.js"><img src="docs/readme/badge-core.svg" alt="单文件核心"></a>
-  <a href="package.json"><img src="docs/readme/badge-dependencies.svg" alt="零运行时依赖"></a>
-  <a href="#security"><img src="docs/readme/badge-mapping.svg" alt="请求级映射"></a>
-  <a href="#compatibility"><img src="docs/readme/badge-streaming.svg" alt="JSON 与 SSE"></a>
 </p>
 
 <p align="center">
-  <a href="README.md">English</a> · <strong>简体中文</strong>
+  <a href="README.md">简体中文 · 主 README</a> · <a href="README.en.md">English</a>
   <br>
-  <a href="#quick-start">快速开始</a> ·
-  <a href="#how-it-works">看看脱敏过程</a> ·
-  <a href="#integrations">接入现有应用</a> ·
-  <a href="#security">安全边界</a> ·
-  <a href="docs/REFERENCE.md">技术参考</a>
+  <a href="#h-layer">为什么是 H</a> ·
+  <a href="#quick-start">本地全开</a> ·
+  <a href="#proof">验证检测</a> ·
+  <a href="#integrations">接入应用</a> ·
+  <a href="#security">安全边界</a>
 </p>
 
-Cosy 是一个可自行部署的 LLM API 隐私中继：先替换**被检测器命中的敏感文本**，再转发请求；响应中的已知占位符被原样返回时，还原为原值——包括受支持的 SSE 流与工具调用参数。
+凭据不一定以 `sk-` 开头。一个内部服务令牌，可能只是代码、配置、日志或工具结果里的一串随机字符。
 
-**一个可部署的 `worker.js`，无需数据库，零运行时依赖。** 核心运行于 Cloudflare Workers 或 Deno；Node 20+ 适配器用于本地开发。保留原有上游协议。
+**面向程序员的 LLM 凭据脱敏网关，多一层不依赖已知前缀的 H 启发式检测。** `H` 会对符合条件的文本块评分，不要求已知厂商格式，也不要求 `password=` 这样的赋值标签。**全功能启用时**，`H` 与结构化检测、Gitleaks 兼容密钥规则协同工作：命中内容在转发前替换为可逆占位符，并在普通响应、受支持的 SSE 流和工具调用参数中还原已知、未被修改的占位符。
 
-> **先明确边界：** Cosy 会看到原文，请部署在可信环境。检测无法覆盖全部秘密，托管部署也不等于仅在本机处理。[阅读安全模型 →](#security)
+**面向程序员的本地优先用法：把 Cosy 跑在本机，让受支持的 LLM 调用经过它。** 下方示例统一使用 `/$https://…`，启用全部检测器。
+
+> **保护范围：** 检查经过网关的 JSON 文本，并替换命中的内容，不是拦截主机全部流量。检测仍可能漏检；上游认证凭据仍会转发。部署到云端时，云端网关会先接收到原始请求。[安全边界 →](#security)
+
+<a id="h-layer"></a>
+## 凭据没有标签，也不该少一道防线
+
+固定格式规则检查文本是否匹配已配置的模式；**H 还会检查：符合条件的文本块，是否显著不像普通英文文本。** 因此，即使没有已知厂商前缀，也没有凭据赋值标签，随机形态的凭据仍多了一条被识别的路径。
+
+| 检测层 | 带来的覆盖 |
+| :--- | :--- |
+| **已知格式与结构化规则** | 识别受支持的厂商密钥特征、凭据赋值形式和结构化个人信息。 |
+| **H：不依赖前缀的启发式** | 对超过 8 个字符的 ASCII 字母数字块进行长度感知的英文二元字符交叉熵评分，并检查字符多样性；排除纯数字块。 |
+| **全开：`HPSIBEG`** | 组合以上检测路径。标志位留空即启用全部检测器，不是“只开 H”。 |
+
+**增加的是检测路径，不是“随机串必然是凭据”或“所有凭据都能拦截”的保证。** 实现与校准说明：[`worker.js`](worker.js)、[熵检测方法](docs/ENTROPY.md)。
 
 <a id="how-it-works"></a>
-## 看清哪些内容发给了模型
-
-客服提示词中的邮箱、复制配置时带上的凭证、工具结果里的敏感值，都可能随一条普通 LLM 请求发送出去。Cosy 在请求到达上游前，增加一个替换命中内容的环节。
+### 固定规则之外，再检查一次
 
 <p align="center">
   <picture>
-    <source media="(max-width: 600px)" srcset="docs/readme/flow-mobile.svg">
-    <img src="docs/readme/flow.svg" alt="应用 → Cosy 脱敏 → 上游模型 → Cosy 还原 → 应用。仅替换检测命中的文本；还原要求模型原样返回当前请求中的已知占位符。" width="1040">
+    <source media="(prefers-reduced-motion: reduce) and (max-width: 600px)" srcset="docs/readme/h-layer-mobile-zh-poster.png">
+    <source media="(prefers-reduced-motion: reduce)" srcset="docs/readme/h-layer-zh-poster.png">
+    <source media="(max-width: 600px)" srcset="docs/readme/h-layer-mobile-zh.gif">
+    <img src="docs/readme/h-layer-zh.gif" alt="机制示意：已知规则没有命中时，H 仍可对符合条件的随机文本块评分；命中后替换为占位符。不是与 maskit 的实测比较。" width="1040">
   </picture>
 </p>
 
-| 阶段 | 内容示意 |
-| :--- | :--- |
-| **应用发送** | `请联系 alice@example.com。` |
-| **上游看到** | `请联系 {{Redact:…}}。` |
-| **模型返回** | `我会联系 {{Redact:…}}。` |
-| **应用收到** | `我会联系 alice@example.com。` |
+*这是机制示意，不是实测录屏或竞品基准测试。示例凭据为合成字符串，占位符经过缩写，不含真实凭据。*
 
-上面的占位符为便于阅读而缩写；真实占位符包含 64 位十六进制 SHA-256 摘要。模型需要原样保留它。示意中省略了协议提示 Notice。[查看完整生命周期 →](docs/REFERENCE.md#lifecycle)
+| 阶段 | 示意文本 |
+| :--- | :--- |
+| **应用发出** | `检查这个值： q7X9v2L5m8N4r6T1w3Y0z5A8b2C9d7F4` |
+| **该值被检测命中后，上游收到** | `检查这个值： {{Redact:…}}` |
+| **模型原样返回占位符** | `这个值是 {{Redact:…}}` |
+| **Cosy 为应用还原** | `这个值是 q7X9v2L5m8N4r6T1w3Y0z5A8b2C9d7F4` |
+
+只有模型原样保留已知占位符时，原值才能恢复。真实占位符包含 64 个字符的 SHA-256 摘要。Cosy 也会还原工具参数，但**不会执行工具，也不负责授权工具动作**。[完整往返机制 →](docs/REFERENCE.md#lifecycle)
 
 <details>
-<summary><strong>工具调用参数也可以完成同样的往返</strong></summary>
+<summary><strong>展开查看：一次完整的脱敏与还原往返</strong></summary>
 
-```text
-客户端提交的工具结果
-  {"email":"alice@example.com"}
+<p align="center">
+  <picture>
+    <source media="(prefers-reduced-motion: reduce) and (max-width: 600px)" srcset="docs/readme/round-trip-mobile-zh-poster.png">
+    <source media="(prefers-reduced-motion: reduce)" srcset="docs/readme/round-trip-zh-poster.png">
+    <source media="(max-width: 600px)" srcset="docs/readme/round-trip-mobile-zh.gif">
+    <img src="docs/readme/round-trip-zh.gif" alt="机制示意：在可信网关中替换命中的邮箱；上游原样返回占位符后，网关为应用还原原值。" width="1040">
+  </picture>
+</p>
 
-发送给模型的脱敏内容
-  {"email":"{{Redact:…}}"}
-
-模型返回的工具调用参数
-  {"email":"{{Redact:…}}"}
-
-客户端收到的参数
-  {"email":"alice@example.com"}
-```
-
-Cosy 负责恢复原值，**不会**执行工具，也不负责授权工具操作。工具内容在后续请求中再次提交时，会重新扫描；替换映射不会跨请求保留。
+这是往返机制示意，使用合成数据；摘要与协议提示已缩略。只有当前请求中已知且未被改写的占位符才能还原。
 
 </details>
 
-<a id="why-cosy"></a>
-## 小，是一种设计选择
+<a id="proof"></a>
+## 多出的这一层，可以自己验证
 
-| 设计选择 | 对现有技术栈意味着什么 |
-| :--- | :--- |
-| **单文件核心** | 审阅或部署 `worker.js`；核心使用 Web Fetch、Web Streams 和 Web Crypto API。 |
-| **协议透传** | 保留上游请求结构，而不是在不同 API 家族之间转换。 |
-| **请求级映射** | 在当前请求中还原原值，无需持久化映射数据库。 |
-| **理解流式边界** | 处理受支持的文本和工具参数增量，包括跨 SSE 事件、跨 HTTP chunk 的占位符。 |
-| **显式检测策略** | 通过 URL 字母开关选择结构化检测、高熵检测与 Gitleaks 兼容规则。 |
-| **MIT 许可证** | 阅读[许可证](LICENSE)与[第三方声明](THIRD_PARTY_NOTICES.md)，把隐私层留在自己的技术栈中。 |
+安全卖点应该能检查。仓库提供一个**纯本地、无需 API Key 的演示脚本**，直接调用仓库导出的检测与脱敏函数：
+
+```bash
+node scripts/demo-h.mjs
+```
+
+它会对同一个无标签的合成字符串，分别打印 **`PSIBEG`（关闭 H）、仅 `H`、空标志位／全开**时的实际结果，并检查精确还原以及 H 已说明的排除条件。脚本不联网，不调用模型；结果只描述这些样例，**不是 maskit 对照测试**。
+
+仓库中更完整的回归与熵检测样本可这样运行：
+
+```bash
+npm test
+npm run entropy-report
+```
+
+项目已发布的校准记录中，**30,000 个自然词拼接样本有 296 个（0.9867%）被判为高熵**；随机 hex/base62 样本的召回率随长度提高。这是合成样本结果，不是生产泄漏率，也不是本次 README 更新独立复测出的基准成绩。[校准方法](docs/ENTROPY.md) · [H 的证据、对比范围与限制](docs/H-DETECTION.md)
+
+<details>
+<summary><strong>与 maskit 已公开检测方式的区别</strong></summary>
+
+maskit 公开说明了固定格式规则、自定义词和正则；既有对比资料查阅的规则还包括 Bearer Token 与凭据赋值检测，**不应将它描述为只能识别几个厂商前缀**。这里突出 Cosy 的差异是：额外提供了明确公开、**不要求已知前缀或凭据赋值标签的二元字符启发式 H**。既有对比资料中的 maskit 文档与规则片段未能确认有同类检测层。
+
+这个差异支持有范围的架构对比，不等于“maskit 永远做不到”，也不等于“Cosy 在所有场景下都更安全”。该对比没有两边全开配置的受控基准结果。[查阅范围与来源 →](docs/H-DETECTION.md#comparison)
+
+</details>
 
 <a id="quick-start"></a>
-## 快速开始
+## 本地运行，全部启用
 
-### 1. 在本地启动
+### 1. 在自己主机上启动网关
 
-准备好 **Node.js 20+**、Git 和终端。HTTP 示例使用 Bash 与 curl 7.76+；也可以使用后面的 SDK 示例。网关没有需要安装的运行时依赖。
+需要 **Node.js 20+**、Git 和终端。网关无需安装运行时依赖。HTTP 示例使用 Bash 和 curl 7.76+。
 
 ```bash
 git clone https://github.com/CassiopeiaCode/CosyRedactGateway.git
@@ -100,63 +128,59 @@ cd CosyRedactGateway
 npm start
 ```
 
-开发适配器默认监听 `http://127.0.0.1:8787`。保持这个终端运行。
+本地开发适配器默认监听 `http://127.0.0.1:8787`。此用法保持绑定本机回环地址。
 
-### 2. 确认服务已启动
+### 2. 不接入模型，先在本地检查
 
-在另一个终端执行：
+另开一个终端，进入同一个仓库目录：
 
 ```bash
 curl --fail --silent --show-error http://127.0.0.1:8787/healthz
+node scripts/demo-h.mjs
 ```
 
-预期 JSON 响应（此处排版便于阅读）：
+第一条检查服务可用性；第二条离线检查合成检测样例。都不需要 API Key。
 
-```json
-{
-  "ok": true,
-  "service": "cosy-redact-gateway",
-  "route": "/<flags>$<upstream-url>",
-  "flags": "HPSIBEG",
-  "defaultAll": true
-}
-```
+### 3. 使用全开策略发出请求
 
-这一步检查本地服务是否可用，不检查上游连通性或检测质量。**不需要 API Key。** 要运行仓库的回归测试，在项目目录执行 `npm test`。
-
-### 3. 发出第一条脱敏请求
-
-用你平时管理密钥的方式，在当前 shell 中设置 `OPENAI_API_KEY`。以下 Bash 示例使用 `gpt-4.1-mini`；接入自己的服务时，请选择账号可用的模型。
+通过日常的密钥管理方式在环境中导出 `OPENAI_API_KEY`，并将 `OPENAI_MODEL` 导出为账户可用的模型。这会真实调用上游，可能产生费用。
 
 ```bash
 : "${OPENAI_API_KEY:?Set OPENAI_API_KEY in this shell first}"
+: "${OPENAI_MODEL:?Set OPENAI_MODEL to a model available to your account}"
 
-curl --fail-with-body --no-buffer \
+node --input-type=module -e '
+  const payload = {
+    model: process.env.OPENAI_MODEL,
+    messages: [{
+      role: "user",
+      content: "请原样返回这个值： q7X9v2L5m8N4r6T1w3Y0z5A8b2C9d7F4"
+    }],
+    stream: true
+  };
+  process.stdout.write(JSON.stringify(payload));
+' | curl --fail-with-body --no-buffer \
   -H 'content-type: application/json' \
   -H "authorization: Bearer ${OPENAI_API_KEY}" \
-  --data '{
-    "model": "gpt-4.1-mini",
-    "messages": [{
-      "role": "user",
-      "content": "Repeat this email address exactly: alice@example.com"
-    }],
-    "stream": true
-  }' \
-  'http://127.0.0.1:8787/E$https://api.openai.com/v1/chat/completions'
+  --data-binary @- \
+  'http://127.0.0.1:8787/$https://api.openai.com/v1/chat/completions'
 ```
 
-`E` 只启用邮箱检测，便于观察效果。模型原样返回占位符时，客户端应收到恢复后的邮箱。这是一次**真实上游调用**，可能产生服务商费用；模型输出并非确定性的。
 
-**开启全部检测器：** 把 `/E$https://` 改成 `/$https://`。在 shell 命令中，路由 URL 请使用**单引号**，避免 `$` 被展开。
+**`$` 前的标志位留空，等于启用 `HPSIBEG`：包括 H 在内的全部检测器。** 模型原样返回被检测值的占位符时，应用会收到还原后的原值；模型输出本身不保证确定。Shell 中的路由 URL 要使用单引号，避免 `$` 被展开。
+
+提供商认证头仍会转发到指定上游。此示例检验的是请求正文内容的脱敏，不是隐藏用于认证该 API 调用的密钥。
 
 <a id="integrations"></a>
-## 接入你的现有应用
+## 给现有开发工具加上这层检测
 
 保留上游 API Key、模型和请求结构，把目标地址改成 Cosy 路由。客户端需要完整保留嵌入的上游 URL，并正确追加 API 路径。
 
+所有下方路由均启用全部检测器，包括 H。客户端必须真正把相关请求经过此网关。
+
 ### OpenAI Python SDK
 
-在**应用环境**中安装 SDK，而不是给网关增加依赖：`python -m pip install openai`。设置好 `OPENAI_API_KEY` 并启动本地网关后：
+在**应用环境**中安装 SDK，而不是给网关增加依赖：`python -m pip install openai`。在环境中导出 `OPENAI_API_KEY`、`OPENAI_MODEL` 并启动本地网关后：
 
 ```python
 import os
@@ -164,17 +188,17 @@ from openai import OpenAI
 
 client = OpenAI(
     api_key=os.environ["OPENAI_API_KEY"],
-    base_url="http://127.0.0.1:8787/E$https://api.openai.com/v1",
+    base_url="http://127.0.0.1:8787/$https://api.openai.com/v1",
 )
 
 response = client.responses.create(
-    model="gpt-4.1-mini",
-    input="Repeat this email address exactly: alice@example.com",
+    model=os.environ["OPENAI_MODEL"],
+    input="请原样返回这个值： q7X9v2L5m8N4r6T1w3Y0z5A8b2C9d7F4",
 )
 print(response.output_text)
 ```
 
-预期路由路径以 `E$https://api.openai.com/v1/responses` 结尾；Chat Completions 使用相同的 Base URL。[SDK 配置参考](https://github.com/openai/openai-python)
+预期路由路径以 `$https://api.openai.com/v1/responses` 结尾；Chat Completions 使用相同的 Base URL。[SDK 配置参考](https://github.com/openai/openai-python)
 
 <details>
 <summary><strong>Anthropic JavaScript SDK</strong></summary>
@@ -192,7 +216,7 @@ if (!apiKey || !model) {
 
 const client = new Anthropic({
   apiKey,
-  baseURL: 'http://127.0.0.1:8787/E$https://api.anthropic.com',
+  baseURL: 'http://127.0.0.1:8787/$https://api.anthropic.com',
 });
 
 const message = await client.messages.create({
@@ -200,7 +224,7 @@ const message = await client.messages.create({
   max_tokens: 128,
   messages: [{
     role: 'user',
-    content: 'Repeat this email address exactly: alice@example.com',
+    content: '请原样返回这个值： q7X9v2L5m8N4r6T1w3Y0z5A8b2C9d7F4',
   }],
 });
 console.log(message.content);
@@ -217,16 +241,28 @@ SDK 会追加 `/v1/messages`；不要在这个 Base URL 后再添加 `/v1`。[SD
 
 | API 家族 | Base URL 示例 |
 | :--- | :--- |
-| 追加 `/chat/completions` 或 `/responses` 的 OpenAI 风格客户端 | `http://127.0.0.1:8787/E$https://api.openai.com/v1` |
-| 追加 `/v1/messages` 的 Anthropic 风格客户端 | `http://127.0.0.1:8787/E$https://api.anthropic.com` |
+| 追加 `/chat/completions` 或 `/responses` 的 OpenAI 风格客户端 | `http://127.0.0.1:8787/$https://api.openai.com/v1` |
+| 追加 `/v1/messages` 的 Anthropic 风格客户端 | `http://127.0.0.1:8787/$https://api.anthropic.com` |
 | 自定义 HTTP 客户端 | 像 curl 示例一样，把完整上游端点放在 `$` 之后。 |
 
 **支持协议，不等于完成了某个产品的兼容认证。** Cursor、Claude Code、Codex 等工具的版本、认证模式、URL 处理方式，以及请求实际发起的位置都可能不同。这里不作特定版本的端到端兼容承诺。接入敏感工作前，请用合成数据核对实际请求路径。远程执行的客户端无法访问你电脑上的 `127.0.0.1`。
 
 </details>
 
+<a id="why-cosy"></a>
+## 多一层检测，不必换一套工作流
+
+| 设计选择 | 对现有技术栈意味着什么 |
+| :--- | :--- |
+| **单文件核心** | 审阅或部署 `worker.js`；核心使用 Web Fetch、Web Streams 和 Web Crypto API。 |
+| **协议透传** | 保留上游请求结构，而不是在不同 API 家族之间转换。 |
+| **请求级映射** | 在当前请求中还原原值，无需持久化映射数据库。 |
+| **理解流式边界** | 处理受支持的文本和工具参数增量，包括跨 SSE 事件、跨 HTTP chunk 的占位符。 |
+| **显式检测策略** | 通过 URL 字母开关选择结构化检测、高熵检测与 Gitleaks 兼容规则。 |
+| **MIT 许可证** | 阅读[许可证](LICENSE)与[第三方声明](THIRD_PARTY_NOTICES.md)，把隐私层留在自己的技术栈中。 |
+
 <a id="detectors"></a>
-## 选择要脱敏的内容
+## 全开为起点，再按数据调优
 
 ```text
 https://<cosy-host>/<flags>$<full-upstream-url>
@@ -236,7 +272,7 @@ https://<cosy-host>/<flags>$<full-upstream-url>
 
 | 开关 | 检测器 | 范围 |
 | :---: | :--- | :--- |
-| `H` | 高熵文本块 | 长度超过 8 的 ASCII 字母数字块；使用与长度相关的 bigram 评分，排除纯数字块。 |
+| `H` | 高熵文本块 | 长度超过 8 的 ASCII 字母数字块；使用与长度相关的二元字符评分，排除纯数字块。 |
 | `P` | 电话号码 | 中国大陆手机号与国际 `+…` 格式。 |
 | `S` | 长 `sk-` 密钥 | `sk-` 后至少 60 位 ASCII 字母数字；不代表覆盖所有服务商的密钥格式。 |
 | `I` | 中国居民身份证 | 对候选身份证号码进行校验码验证。 |
@@ -268,6 +304,20 @@ npm run entropy-report
 ```
 
 文档中的熵检测 fixture 将 **30,000 个自然词拼接样本中的 296 个（0.9867%）**判为高熵；随机 hex/base62 字符串的召回率随长度上升。这些是**合成测试样本结果，不是真实业务隐私保证、吞吐性能基准或独立安全审计**。[方法与复现 →](docs/ENTROPY.md)
+
+<details>
+<summary><strong>展开动画：占位符跨 SSE 分段，也能还原</strong></summary>
+
+<p align="center">
+  <picture>
+    <source media="(prefers-reduced-motion: reduce)" srcset="docs/readme/sse-restoration-zh-poster.png">
+    <img src="docs/readme/sse-restoration-zh.gif" alt="中文机制示意：SSE 占位符分段到达，Cosy 缓冲不完整标记，收到完整且已知的占位符后还原原值。" width="1040">
+  </picture>
+</p>
+
+机制示意，非实测录屏。摘要与 SSE 封装经过缩略；演示的是已知占位符的缓冲与还原，不代表任意流式格式都已通过兼容性验证。
+
+</details>
 
 <a id="deployment"></a>
 ## 部署在你信任的环境中
@@ -333,6 +383,13 @@ REDACT_ALLOWED_HOSTS=api.openai.com,api.anthropic.com \
 ## 几个重要问题
 
 <details>
+<summary><strong>“凭据留在本地”是否等于“主机没有任何凭据出网”？</strong></summary>
+
+不等于。这表达的是本地部署下，对受检查正文中的命中凭据进行出网前替换的目标，不是整机零泄漏承诺。`Authorization`、`x-api-key` 等认证头会按设计发送给上游；跳过的字段、未命中的文本和绕过网关的流量不在这一承诺范围。云端 Worker 或远程 Deno 实例也不是你的本地主机。
+
+</details>
+
+<details>
 <summary><strong>这是加密，或者不可逆匿名化吗？</strong></summary>
 
 都不是。Cosy 用带运行时盐的哈希标识替换选定字符串，再用内存查找表反向恢复。周边提示词仍会发送给上游。哈希标识也不能消除所有推断与关联风险。
@@ -375,4 +432,4 @@ URL 外壳沿用 [TransformVetter](https://github.com/CassiopeiaCode/TransformVe
 
 感谢 [Linux.do](https://linux.do) 社区的支持。本项目使用 [MIT 许可证](LICENSE)。
 
-<p align="center"><sub>轻量的隐私层，清晰的信任边界，你原来的 LLM 技术栈。</sub></p>
+<p align="center"><sub>代码交给 AI。凭据，不该跟着走。先在本地检查，再交给上游。</sub></p>
