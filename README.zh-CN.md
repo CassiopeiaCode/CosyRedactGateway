@@ -1,61 +1,65 @@
 <p align="center">
   <picture>
     <source media="(max-width: 600px)" srcset="docs/readme/hero-mobile-zh.svg">
-    <img src="docs/readme/hero-zh.svg" alt="代码交给 AI。凭据，不该跟着走。H 启发式 + 已知密钥规则。" width="1040">
+    <img src="docs/readme/hero-zh.svg" alt="代码交给 AI。凭据，不该跟着走。高熵凭据检测 + 已知密钥规则。" width="1040">
   </picture>
 </p>
 
 <h1 align="center">Cosy Redact Gateway</h1>
 
-<p align="center"><strong>不只防已知密钥，更要识别没有固定格式的随机凭据。</strong></p>
+<p align="center"><strong>高熵凭据检测：不只匹配已知密钥，也检查没有固定格式的随机凭据。</strong><br>
+  <sub>High-entropy credential detection — beyond known key formats.</sub></p>
 
 <p align="center">
-  <a href="#h-layer"><img src="docs/readme/badge-h.svg" alt="H：不依赖已知前缀的启发式检测"></a>
+  <a href="#high-entropy"><img src="docs/readme/badge-high-entropy.svg" alt="高熵凭据检测：不依赖已知前缀"></a>
   <a href="#quick-start"><img src="docs/readme/badge-all-on.svg" alt="全部启用：HPSIBEG"></a>
   <a href="#compatibility"><img src="docs/readme/badge-streaming.svg" alt="JSON 与 SSE 流式还原"></a>
   <a href="LICENSE"><img src="docs/readme/badge-license.svg" alt="MIT 许可证"></a>
 </p>
 
 <p align="center">
-  <a href="README.md">简体中文 · 主 README</a> · <a href="README.en.md">English</a>
+  <strong>简体中文</strong> · <a href="README.en.md">English</a>
   <br>
-  <a href="#h-layer">为什么是 H</a> ·
+  <a href="#high-entropy">高熵检测</a> ·
   <a href="#quick-start">本地全开</a> ·
-  <a href="#proof">验证检测</a> ·
-  <a href="#integrations">接入应用</a> ·
+  <a href="#proof">验证</a> ·
+  <a href="#integrations">接入</a> ·
   <a href="#security">安全边界</a>
 </p>
 
 凭据不一定以 `sk-` 开头。一个内部服务令牌，可能只是代码、配置、日志或工具结果里的一串随机字符。
 
-**面向程序员的 LLM 凭据脱敏网关，多一层不依赖已知前缀的 H 启发式检测。** `H` 会对符合条件的文本块评分，不要求已知厂商格式，也不要求 `password=` 这样的赋值标签。**全功能启用时**，`H` 与结构化检测、Gitleaks 兼容密钥规则协同工作：命中内容在转发前替换为可逆占位符，并在普通响应、受支持的 SSE 流和工具调用参数中还原已知、未被修改的占位符。
+**Cosy 是面向程序员的 LLM 凭据脱敏网关，核心是高熵凭据检测（High-entropy credential detection）。** 它不仅匹配已知密钥格式，还对符合条件的文本块进行统计评分，寻找随机形态的凭据候选，不要求厂商前缀，也不要求 `password=` 这样的赋值标签。
+
+**全部检测器启用时**，高熵检测与结构化检测、Gitleaks 兼容密钥规则协同工作：命中内容在转发前替换为可逆占位符，并在普通响应、受支持的 SSE 流和工具调用参数中还原已知、未被修改的占位符。高熵检测对应配置开关 `H`。
 
 **面向程序员的本地优先用法：把 Cosy 跑在本机，让受支持的 LLM 调用经过它。** 下方示例统一使用 `/$https://…`，启用全部检测器。
 
 > **保护范围：** 检查经过网关的 JSON 文本，并替换命中的内容，不是拦截主机全部流量。检测仍可能漏检；上游认证凭据仍会转发。部署到云端时，云端网关会先接收到原始请求。[安全边界 →](#security)
 
 <a id="h-layer"></a>
-## 凭据没有标签，也不该少一道防线
+<a id="high-entropy"></a>
+## 高熵凭据检测：没有已知格式，也值得检查
 
-固定格式规则检查文本是否匹配已配置的模式；**H 还会检查：符合条件的文本块，是否显著不像普通英文文本。** 因此，即使没有已知厂商前缀，也没有凭据赋值标签，随机形态的凭据仍多了一条被识别的路径。
+固定格式规则检查文本是否匹配已配置的模式；**高熵检测还会检查：符合条件的文本块，是否显著不像普通英文文本。** 因此，即使没有已知厂商前缀，也没有凭据赋值标签，随机形态的凭据仍多了一条被识别的路径。
 
 | 检测层 | 带来的覆盖 |
 | :--- | :--- |
 | **已知格式与结构化规则** | 识别受支持的厂商密钥特征、凭据赋值形式和结构化个人信息。 |
-| **H：不依赖前缀的启发式** | 对超过 8 个字符的 ASCII 字母数字块进行长度感知的英文二元字符交叉熵评分，并检查字符多样性；排除纯数字块。 |
-| **全开：`HPSIBEG`** | 组合以上检测路径。标志位留空即启用全部检测器，不是“只开 H”。 |
+| **高熵凭据检测 / High-entropy credential detection** | 对超过 8 个字符的 ASCII 字母数字块进行长度感知的英文二元字符交叉熵评分，并检查字符多样性；排除纯数字块。 |
+| **全开：`HPSIBEG`** | 组合以上检测路径。标志位留空即启用全部检测器，不是“只开高熵检测”。 |
 
 **增加的是检测路径，不是“随机串必然是凭据”或“所有凭据都能拦截”的保证。** 实现与校准说明：[`worker.js`](worker.js)、[熵检测方法](docs/ENTROPY.md)。
 
 <a id="how-it-works"></a>
-### 固定规则之外，再检查一次
+### 看高熵检测如何补充固定规则
 
 <p align="center">
   <picture>
-    <source media="(prefers-reduced-motion: reduce) and (max-width: 600px)" srcset="docs/readme/h-layer-mobile-zh-poster.png">
-    <source media="(prefers-reduced-motion: reduce)" srcset="docs/readme/h-layer-zh-poster.png">
-    <source media="(max-width: 600px)" srcset="docs/readme/h-layer-mobile-zh.gif">
-    <img src="docs/readme/h-layer-zh.gif" alt="机制示意：已知规则没有命中时，H 仍可对符合条件的随机文本块评分；命中后替换为占位符。不是与 maskit 的实测比较。" width="1040">
+    <source media="(prefers-reduced-motion: reduce) and (max-width: 600px)" srcset="docs/readme/high-entropy-mobile-zh-poster.png">
+    <source media="(prefers-reduced-motion: reduce)" srcset="docs/readme/high-entropy-zh-poster.png">
+    <source media="(max-width: 600px)" srcset="docs/readme/high-entropy-mobile-zh.gif">
+    <img src="docs/readme/high-entropy-zh.gif" alt="机制示意：已知规则没有命中时，高熵检测仍可对符合条件的随机文本块评分；命中后替换为占位符。不是与 maskit 的实测比较。" width="1040">
   </picture>
 </p>
 
@@ -92,10 +96,10 @@
 安全卖点应该能检查。仓库提供一个**纯本地、无需 API Key 的演示脚本**，直接调用仓库导出的检测与脱敏函数：
 
 ```bash
-node scripts/demo-h.mjs
+node scripts/demo-high-entropy.mjs
 ```
 
-它会对同一个无标签的合成字符串，分别打印 **`PSIBEG`（关闭 H）、仅 `H`、空标志位／全开**时的实际结果，并检查精确还原以及 H 已说明的排除条件。脚本不联网，不调用模型；结果只描述这些样例，**不是 maskit 对照测试**。
+它会对同一个无标签的合成字符串，分别打印 **`PSIBEG`（关闭高熵检测）、`H`（仅高熵检测）、空标志位（全部启用）** 时的实际结果，并检查精确还原以及高熵检测已说明的排除条件。脚本不联网，不调用模型；结果只描述这些样例，**不是 maskit 对照测试**。
 
 仓库中更完整的回归与熵检测样本可这样运行：
 
@@ -104,14 +108,14 @@ npm test
 npm run entropy-report
 ```
 
-项目已发布的校准记录中，**30,000 个自然词拼接样本有 296 个（0.9867%）被判为高熵**；随机 hex/base62 样本的召回率随长度提高。这是合成样本结果，不是生产泄漏率，也不是本次 README 更新独立复测出的基准成绩。[校准方法](docs/ENTROPY.md) · [H 的证据、对比范围与限制](docs/H-DETECTION.md)
+项目已发布的校准记录中，**30,000 个自然词拼接样本有 296 个（0.9867%）被判为高熵**；随机 hex/base62 样本的召回率随长度提高。这是合成样本结果，不是生产泄漏率，也不是本次 README 更新独立复测出的基准成绩。[校准方法](docs/ENTROPY.md) · [高熵检测：证据、对比范围与限制](docs/HIGH-ENTROPY.md)
 
 <details>
 <summary><strong>与 maskit 已公开检测方式的区别</strong></summary>
 
-maskit 公开说明了固定格式规则、自定义词和正则；既有对比资料查阅的规则还包括 Bearer Token 与凭据赋值检测，**不应将它描述为只能识别几个厂商前缀**。这里突出 Cosy 的差异是：额外提供了明确公开、**不要求已知前缀或凭据赋值标签的二元字符启发式 H**。既有对比资料中的 maskit 文档与规则片段未能确认有同类检测层。
+maskit 公开说明了固定格式规则、自定义词和正则；既有对比资料查阅的规则还包括 Bearer Token 与凭据赋值检测，**不应将它描述为只能识别几个厂商前缀**。这里突出 Cosy 的差异是：额外提供了明确公开、**不要求已知前缀或凭据赋值标签的二元字符高熵启发式检测**。既有对比资料中的 maskit 文档与规则片段未能确认有同类检测层。
 
-这个差异支持有范围的架构对比，不等于“maskit 永远做不到”，也不等于“Cosy 在所有场景下都更安全”。该对比没有两边全开配置的受控基准结果。[查阅范围与来源 →](docs/H-DETECTION.md#comparison)
+这个差异支持有范围的架构对比，不等于“maskit 永远做不到”，也不等于“Cosy 在所有场景下都更安全”。该对比没有两边全开配置的受控基准结果。[查阅范围与来源 →](docs/HIGH-ENTROPY.md#comparison)
 
 </details>
 
@@ -136,7 +140,7 @@ npm start
 
 ```bash
 curl --fail --silent --show-error http://127.0.0.1:8787/healthz
-node scripts/demo-h.mjs
+node scripts/demo-high-entropy.mjs
 ```
 
 第一条检查服务可用性；第二条离线检查合成检测样例。都不需要 API Key。
@@ -167,7 +171,7 @@ node --input-type=module -e '
 ```
 
 
-**`$` 前的标志位留空，等于启用 `HPSIBEG`：包括 H 在内的全部检测器。** 模型原样返回被检测值的占位符时，应用会收到还原后的原值；模型输出本身不保证确定。Shell 中的路由 URL 要使用单引号，避免 `$` 被展开。
+**`$` 前的标志位留空，等于启用 `HPSIBEG`：包括高熵检测在内的全部检测器。** 模型原样返回被检测值的占位符时，应用会收到还原后的原值；模型输出本身不保证确定。Shell 中的路由 URL 要使用单引号，避免 `$` 被展开。
 
 提供商认证头仍会转发到指定上游。此示例检验的是请求正文内容的脱敏，不是隐藏用于认证该 API 调用的密钥。
 
@@ -176,7 +180,7 @@ node --input-type=module -e '
 
 保留上游 API Key、模型和请求结构，把目标地址改成 Cosy 路由。客户端需要完整保留嵌入的上游 URL，并正确追加 API 路径。
 
-所有下方路由均启用全部检测器，包括 H。客户端必须真正把相关请求经过此网关。
+所有下方路由均启用全部检测器，包括高熵检测。客户端必须真正把相关请求经过此网关。
 
 ### OpenAI Python SDK
 
@@ -272,7 +276,7 @@ https://<cosy-host>/<flags>$<full-upstream-url>
 
 | 开关 | 检测器 | 范围 |
 | :---: | :--- | :--- |
-| `H` | 高熵文本块 | 长度超过 8 的 ASCII 字母数字块；使用与长度相关的二元字符评分，排除纯数字块。 |
+| `H` | 高熵凭据检测（High-entropy credential detection） | 长度超过 8 的 ASCII 字母数字块；使用与长度相关的二元字符评分，排除纯数字块。 |
 | `P` | 电话号码 | 中国大陆手机号与国际 `+…` 格式。 |
 | `S` | 长 `sk-` 密钥 | `sk-` 后至少 60 位 ASCII 字母数字；不代表覆盖所有服务商的密钥格式。 |
 | `I` | 中国居民身份证 | 对候选身份证号码进行校验码验证。 |

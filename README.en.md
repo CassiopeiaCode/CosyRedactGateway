@@ -1,16 +1,16 @@
 <p align="center">
   <picture>
     <source media="(max-width: 600px)" srcset="docs/readme/hero-mobile-en.svg">
-    <img src="docs/readme/hero-en.svg" alt="Your code goes to AI. Your credentials shouldn't. H heuristics + known-secret rules." width="1040">
+    <img src="docs/readme/hero-en.svg" alt="Your code goes to AI. Your credentials shouldn't. High-entropy credential detection + known-secret rules." width="1040">
   </picture>
 </p>
 
 <h1 align="center">Cosy Redact Gateway</h1>
 
-<p align="center"><strong>Catch more than known key formats.</strong></p>
+<p align="center"><strong>High-entropy credential detection. Beyond known key formats.</strong></p>
 
 <p align="center">
-  <a href="#h-layer"><img src="docs/readme/badge-h-en.svg" alt="H: prefix-independent heuristics"></a>
+  <a href="#high-entropy"><img src="docs/readme/badge-high-entropy-en.svg" alt="High-entropy credential detection: prefix-independent"></a>
   <a href="#quick-start"><img src="docs/readme/badge-all-on-en.svg" alt="All detectors on: HPSIBEG"></a>
   <a href="#compatibility"><img src="docs/readme/badge-streaming-en.svg" alt="JSON and SSE"></a>
   <a href="LICENSE"><img src="docs/readme/badge-license-en.svg" alt="MIT license"></a>
@@ -19,7 +19,7 @@
 <p align="center">
   <a href="README.md">简体中文</a> · <strong>English</strong>
   <br>
-  <a href="#h-layer">Why H</a> ·
+  <a href="#high-entropy">High entropy</a> ·
   <a href="#quick-start">Start locally</a> ·
   <a href="#proof">Verify detection</a> ·
   <a href="#integrations">Connect your app</a> ·
@@ -28,22 +28,25 @@
 
 A credential does not need an `sk-` prefix to be sensitive. An internal service token can be a bare random-looking string—inside pasted code, configuration, logs, or a tool result.
 
-**Cosy adds a prefix-independent heuristic layer to LLM request redaction.** Its `H` detector scores eligible text blocks without requiring a known provider format or an assignment label such as `password=`. With **all detectors enabled**, `H` complements structured checks and Gitleaks-compatible secret rules. Matched values become reversible placeholders before forwarding; known, unchanged placeholders are restored in responses, supported SSE streams, and tool-call arguments.
+**Cosy is a developer-focused LLM redaction gateway built around high-entropy credential detection.** Alongside known key formats, it statistically scores eligible text blocks for random-looking credential candidates, without requiring a provider prefix or an assignment label such as `password=`.
+
+With **all detectors enabled**, high-entropy detection complements structured checks and Gitleaks-compatible secret rules. Matched values become reversible placeholders before forwarding; known, unchanged placeholders are restored in responses, supported SSE streams, and tool-call arguments. The configuration flag for high-entropy detection is `H`.
 
 **For a local-first developer workflow, run Cosy on your machine and route your supported LLM calls through it.** The examples below enable every detector with `/$https://…`.
 
 > **Scope:** this protects matched values in inspected JSON text, not all host traffic. Detection can miss secrets. Upstream authentication is still forwarded. A hosted gateway sees the original request before redaction. [Security boundary →](#security)
 
 <a id="h-layer"></a>
-## Credentials do not always come with a label
+<a id="high-entropy"></a>
+## High-entropy credentials do not always come with a label
 
-A known-format rule asks whether text matches a configured pattern. **H also asks whether an eligible block looks unusually unlike ordinary English text.** That gives unlabeled, random-looking credentials another route to detection—even when there is no provider prefix or credential assignment label to match.
+A known-format rule asks whether text matches a configured pattern. **High-entropy detection also asks whether an eligible block looks unusually unlike ordinary English text.** That gives unlabeled, random-looking credentials another route to detection—even when there is no provider prefix or credential assignment label to match.
 
 | Detection layer | What it adds |
 | :--- | :--- |
 | **Known formats & structured rules** | Recognize supported provider signatures, credential assignments, and structured personal data. |
-| **H: prefix-independent heuristics** | Score ASCII alphanumeric blocks longer than 8 characters using length-aware English bigram cross entropy and a symbol-diversity floor. Numeric-only blocks are excluded. |
-| **All on: `HPSIBEG`** | Combine these approaches. An empty flag section enables the full set; it is not a separate “H-only” mode. |
+| **High-entropy credential detection** | Score ASCII alphanumeric blocks longer than 8 characters using length-aware English bigram cross entropy and a symbol-diversity floor. Numeric-only blocks are excluded. |
+| **All on: `HPSIBEG`** | Combine these approaches. An empty flag section enables the full set; it is not a separate “high-entropy-only” mode. |
 
 **The difference is an extra detection path—not a promise that every random string is a credential or that every credential will be caught.** Source and calibration: [`worker.js`](worker.js), [entropy methodology](docs/ENTROPY.md).
 
@@ -52,10 +55,10 @@ A known-format rule asks whether text matches a configured pattern. **H also ask
 
 <p align="center">
   <picture>
-    <source media="(prefers-reduced-motion: reduce) and (max-width: 600px)" srcset="docs/readme/h-layer-mobile-en-poster.png">
-    <source media="(prefers-reduced-motion: reduce)" srcset="docs/readme/h-layer-en-poster.png">
-    <source media="(max-width: 600px)" srcset="docs/readme/h-layer-mobile-en.gif">
-    <img src="docs/readme/h-layer-en.gif" alt="Mechanism illustration: when a known pattern does not match, H can still score an eligible random-looking block and replace a detected value. Not a maskit benchmark." width="1040">
+    <source media="(prefers-reduced-motion: reduce) and (max-width: 600px)" srcset="docs/readme/high-entropy-mobile-en-poster.png">
+    <source media="(prefers-reduced-motion: reduce)" srcset="docs/readme/high-entropy-en-poster.png">
+    <source media="(max-width: 600px)" srcset="docs/readme/high-entropy-mobile-en.gif">
+    <img src="docs/readme/high-entropy-en.gif" alt="Mechanism illustration: when a known pattern does not match, high-entropy detection can still score an eligible random-looking block and replace a detected value. Not a maskit benchmark." width="1040">
   </picture>
 </p>
 
@@ -92,10 +95,10 @@ Mechanism illustration using synthetic data. Digests and protocol notices are ab
 A useful security claim should be inspectable. The repository includes a **local-only, no-API-key demonstration** that calls the repository's own exported detector and redaction functions:
 
 ```bash
-node scripts/demo-h.mjs
+node scripts/demo-high-entropy.mjs --lang=en
 ```
 
-It prints the observed result for the same synthetic, unlabeled candidate under **`PSIBEG` (H off), `H` alone, and the empty/all-on policy**. It also checks exact restoration and H's documented exclusions. It uses no network and does not call a model. Results describe these fixtures only; the script is not a head-to-head maskit test.
+It prints the observed result for the same synthetic, unlabeled candidate under **`PSIBEG` (high-entropy detection off), `H` (high-entropy detection only), and empty flags (all on)**. It also checks exact restoration and high-entropy detection's documented exclusions. It uses no network and does not call a model. Results describe these fixtures only; the script is not a head-to-head maskit test.
 
 For the project's broader regression and entropy fixtures:
 
@@ -104,14 +107,14 @@ npm test
 npm run entropy-report
 ```
 
-The repository's published calibration reports **296 / 30,000 natural-word concatenations (0.9867%)** classified as high entropy; random hex/base62 recall increases with length. These are synthetic fixture results, not a production leak rate or an independently reproduced benchmark in this README update. [Methodology](docs/ENTROPY.md) · [H evidence, comparison scope, and limitations](docs/H-DETECTION.en.md)
+The repository's published calibration reports **296 / 30,000 natural-word concatenations (0.9867%)** classified as high entropy; random hex/base62 recall increases with length. These are synthetic fixture results, not a production leak rate or an independently reproduced benchmark in this README update. [Methodology](docs/ENTROPY.md) · [High-entropy detection: evidence, comparison scope, and limitations](docs/HIGH-ENTROPY.en.md)
 
 <details>
 <summary><strong>How this differs from maskit's documented detection approach</strong></summary>
 
-Maskit documents known-format rules, custom terms and regular expressions; its reviewed rules also include Bearer tokens and credential assignments. It is **not** limited to a few vendor prefixes. Cosy's distinguishing claim here is the additional, explicitly documented **prefix- and assignment-label-independent bigram heuristic H**. No equivalent layer was established from the maskit documentation and rule excerpts reviewed for this update.
+Maskit documents known-format rules, custom terms and regular expressions; its reviewed rules also include Bearer tokens and credential assignments. It is **not** limited to a few vendor prefixes. Cosy's distinguishing claim here is the additional, explicitly documented **prefix- and assignment-label-independent bigram-based high-entropy detection**. No equivalent layer was established from the maskit documentation and rule excerpts reviewed for this update.
 
-That supports a focused architectural comparison—not “maskit can never implement this” or “Cosy is safer in every situation.” No controlled all-on, head-to-head benchmark was run. [Review scope and source links →](docs/H-DETECTION.en.md#comparison)
+That supports a focused architectural comparison—not “maskit can never implement this” or “Cosy is safer in every situation.” No controlled all-on, head-to-head benchmark was run. [Review scope and source links →](docs/HIGH-ENTROPY.en.md#comparison)
 
 </details>
 
@@ -136,7 +139,7 @@ In another terminal, from the same repository directory:
 
 ```bash
 curl --fail --silent --show-error http://127.0.0.1:8787/healthz
-node scripts/demo-h.mjs
+node scripts/demo-high-entropy.mjs --lang=en
 ```
 
 The first command checks availability; the second exercises synthetic detector fixtures without network access. Neither requires an API key.
@@ -166,7 +169,7 @@ node --input-type=module -e '
   'http://127.0.0.1:8787/$https://api.openai.com/v1/chat/completions'
 ```
 
-**The empty section before `$` enables `HPSIBEG`: all detectors, including H.** Your app receives the original value when a detected value's token is echoed unchanged. Model output is not deterministic. Quote routed URLs in single quotes in shell commands to preserve `$`.
+**The empty section before `$` enables `HPSIBEG`: all detectors, including high-entropy detection.** Your app receives the original value when a detected value's token is echoed unchanged. Model output is not deterministic. Quote routed URLs in single quotes in shell commands to preserve `$`.
 
 Provider authentication headers are forwarded to the chosen upstream. This example tests protection of content in the request body, not concealment of the key required to authenticate the API call.
 
@@ -175,7 +178,7 @@ Provider authentication headers are forwarded to the chosen upstream. This examp
 
 Keep the upstream API key, model, and request shape. Change the destination to a Cosy route. Your client must preserve the embedded upstream URL and append API paths correctly.
 
-Every route below enables all detectors, including H. Your client must actually send the relevant calls through the gateway.
+Every route below enables all detectors, including high-entropy detection. Your client must actually send the relevant calls through the gateway.
 
 ### OpenAI Python SDK
 
@@ -271,7 +274,7 @@ An **empty flag section enables every detector**. `HPSIBEG` is the explicit all-
 
 | Flag | Detector | Scope |
 | :---: | :--- | :--- |
-| `H` | High-entropy blocks | ASCII alphanumeric blocks longer than 8 characters; length-aware bigram scoring. Numeric-only blocks are excluded. |
+| `H` | High-entropy credential detection | ASCII alphanumeric blocks longer than 8 characters; length-aware bigram scoring. Numeric-only blocks are excluded. |
 | `P` | Phone numbers | PRC mobile numbers and international `+…` forms. |
 | `S` | Long `sk-` secrets | `sk-` followed by at least 60 ASCII alphanumeric characters; not every provider key format. |
 | `I` | PRC citizen ID | Identity-number candidates with checksum validation. |

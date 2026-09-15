@@ -4,7 +4,7 @@
 
 This reference collects the routing, lifecycle, detector, streaming, and deployment details behind the README. The authoritative implementation is [`worker.js`](../worker.js); review it alongside the [test suite](../test/), [entropy calibration](ENTROPY.md), and [security policy](../SECURITY.md).
 
-**Developer-first policy:** use `/$https://…` to enable every detector, including the prefix-independent `H` heuristic. Local deployment redacts matched, inspected payload text before upstream forwarding; it does not suppress upstream authentication headers or protect every host connection. See [H: evidence and limits](H-DETECTION.en.md).
+**Developer-first policy:** use `/$https://…` to enable every detector, including prefix-independent high-entropy credential detection (flag `H`). Local deployment redacts matched, inspected payload text before upstream forwarding; it does not suppress upstream authentication headers or protect every host connection. See [High-entropy detection: evidence and limits](HIGH-ENTROPY.en.md).
 
 <a id="routing"></a>
 ## Routing and errors
