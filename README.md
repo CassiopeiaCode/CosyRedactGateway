@@ -1,305 +1,378 @@
-# Cosy Redact Gateway
+<p align="center">
+  <picture>
+    <source media="(max-width: 600px)" srcset="docs/readme/hero-mobile.svg">
+    <img src="docs/readme/hero.svg" alt="Cosy Redact Gateway — Your AI. Fewer secrets." width="1040">
+  </picture>
+</p>
 
-> **Use the upstream you need. Keep the secrets it doesn't.**
+<h1 align="center">Cosy Redact Gateway</h1>
 
-**Cosy Redact Gateway** is a drop-in privacy relay for LLM APIs. Point your existing OpenAI- or Anthropic-compatible client at the proxy, and sensitive values are replaced with reversible `{{Redact:...}}` placeholders **before they reach the upstream model**. When the model returns those placeholders—whether in normal text, JSON, SSE, or tool-call arguments—the proxy restores the original values on the way back.
+<p align="center"><strong>Use the upstream you need. Keep the secrets it doesn't.</strong></p>
 
-**Single file · zero runtime dependencies · Cloudflare Workers · Deno · Node 20+ · streaming-safe**
+<p align="center">
+  <a href="LICENSE"><img src="docs/readme/badge-license.svg" alt="MIT license"></a>
+  <a href="worker.js"><img src="docs/readme/badge-core.svg" alt="Single-file core"></a>
+  <a href="package.json"><img src="docs/readme/badge-dependencies.svg" alt="Zero runtime dependencies"></a>
+  <a href="#security"><img src="docs/readme/badge-mapping.svg" alt="Request-local mappings"></a>
+  <a href="#compatibility"><img src="docs/readme/badge-streaming.svg" alt="JSON and SSE"></a>
+</p>
 
-### Why use it?
+<p align="center">
+  <strong>English</strong> · <a href="README.zh-CN.md">简体中文</a>
+  <br>
+  <a href="#quick-start">Quick start</a> ·
+  <a href="#how-it-works">See the round trip</a> ·
+  <a href="#integrations">Connect your app</a> ·
+  <a href="#security">Security</a> ·
+  <a href="docs/REFERENCE.md">Reference</a>
+</p>
 
-- **Keep your existing client.** Change the base URL; Cosy Redact Gateway preserves the upstream wire format instead of translating it.
-- **Protect prompts and tools.** Messages, tool inputs/results, and other JSON strings are scanned before forwarding.
-- **Restore transparently.** Known placeholders are restored in regular responses and streaming tool/function-call deltas.
-- **Choose your protection level.** Enable high-entropy detection, phone, `sk-` secrets, PRC ID, bank card, email, and a broad Gitleaks-compatible rule set with compact URL flags.
-- **Run almost anywhere.** The deployable `worker.js` only uses Web Fetch, Web Streams, and Web Crypto APIs.
+Cosy is a self-hosted privacy relay for LLM APIs: redact **sensitive text matched by your detectors**, forward the request, and restore unchanged, known placeholders in the response—including supported SSE streams and tool-call arguments.
 
-### 30-second example
+**One deployable `worker.js`. No database. Zero runtime dependencies.** Cloudflare Workers and Deno for the core; a Node 20+ adapter for local development. Your upstream protocol stays your upstream protocol.
 
-Keep the original upstream URL after `$` and put the enabled detector flags before it:
+> **Trust boundary:** Cosy sees plaintext. Deploy it somewhere you trust. Detection is not exhaustive, and hosted deployment is not device-local processing. [Read the security model →](#security)
 
-```text
-https://proxy.example.com/HPSE$https://api.openai.com/v1/chat/completions
-```
+<a id="how-it-works"></a>
+## See what leaves your app
 
-Or enable **everything** by leaving the flag section empty:
+An email in a support prompt, a credential in copied configuration, or a sensitive value in a tool result can travel with an otherwise ordinary LLM request. Cosy adds a place to redact matching values before that request reaches the upstream.
 
-```text
-https://proxy.example.com/$https://api.openai.com/v1/responses
-```
+<p align="center">
+  <picture>
+    <source media="(max-width: 600px)" srcset="docs/readme/flow-mobile.svg">
+    <img src="docs/readme/flow.svg" alt="Your app → Cosy redacts → upstream model → Cosy restores → your app. Only matched text is replaced; restoration needs an unchanged, known token." width="1040">
+  </picture>
+</p>
 
-The data path is intentionally simple:
+| Stage | Illustrative content |
+| :--- | :--- |
+| **Your app sends** | `Please contact alice@example.com.` |
+| **The upstream sees** | `Please contact {{Redact:…}}.` |
+| **The model returns** | `I will contact {{Redact:…}}.` |
+| **Your app receives** | `I will contact alice@example.com.` |
 
-```text
-client request
-    │
-    ├─ detect sensitive values
-    ├─ replace them with {{Redact:<sha256>}}
-    ├─ add a short Redact Notice to the last user message
-    ▼
-untrusted upstream model
-    │
-    ├─ model may echo placeholders in text or tool calls
-    ▼
-Cosy Redact Gateway restores known placeholders
-    │
-    ▼
-client receives the original sensitive values
-```
+The token above is abbreviated for readability; real tokens contain a 64-character SHA-256 digest. The model must preserve the token exactly. The protocol notice is omitted from this illustration. [Full lifecycle →](docs/REFERENCE.md#lifecycle)
 
-The replacement table is request-local and never persisted.
-
-A tool round-trip looks like this:
-
-```text
-client/tool result:   {"email":"alice@example.com"}
-upstream model sees:  {"email":"{{Redact:…}}"}
-model tool call:      {"email":"{{Redact:…}}"}
-client receives:      {"email":"alice@example.com"}
-```
-
-## Routing
-
-The proxy follows the same URL-routing idea as TransformVetter: the proxy configuration and the real upstream URL live in the path.
+<details>
+<summary><strong>The same round trip works with tool-call arguments</strong></summary>
 
 ```text
-https://<proxy-host>/<flags>$<upstream-url>
+Tool result sent by the client
+  {"email":"alice@example.com"}
+
+Redacted value sent to the model
+  {"email":"{{Redact:…}}"}
+
+Tool-call arguments returned by the model
+  {"email":"{{Redact:…}}"}
+
+Arguments delivered to the client
+  {"email":"alice@example.com"}
 ```
 
-Examples:
+Cosy restores the value; it does **not** execute the tool or authorize its action. In a later request, returned tool content is scanned again. Replacement maps do not persist across requests.
 
-```text
-https://proxy.example.com/HPSE$https://api.openai.com/v1/chat/completions
-https://proxy.example.com/E$https://api.openai.com/v1/responses
-https://proxy.example.com/P$https://api.anthropic.com/v1/messages
-https://proxy.example.com/$https://api.example.com/v1/responses
-```
+</details>
 
-An empty flag section means **all rules enabled**.
+<a id="why-cosy"></a>
+## Small by design
 
-| Flag | Detector |
-|---|---|
-| `H` | length-aware high-entropy ASCII alphanumeric blocks (`length > 8`) |
-| `P` | phone numbers (PRC mobile plus international `+...` form) |
-| `S` | `sk-` followed by 60+ ASCII alphanumeric characters |
-| `I` | PRC citizen identity number with checksum validation |
-| `B` | 13-19 digit bank-card candidates with Luhn validation, including common grouped forms |
-| `E` | email addresses |
-| `G` | broad serverless Gitleaks-compatible rule evaluator (218 JS entries; keywords, secret groups, Shannon entropy, allowlists); see [Gitleaks compatibility](docs/GITLEAKS-COMPAT.md) |
+| Design choice | What it means for your stack |
+| :--- | :--- |
+| **Single-file core** | Inspect or deploy `worker.js`; it uses Web Fetch, Web Streams, and Web Crypto APIs. |
+| **Pass-through protocols** | Preserve upstream request shapes instead of converting between API families. |
+| **Request-local mappings** | Restore values without a persistent replacement database. |
+| **Streaming-aware restoration** | Handle supported text and tool-argument deltas, including tokens split across SSE events and HTTP chunks. |
+| **Explicit detector policy** | Choose structured detectors, high-entropy detection, and Gitleaks-compatible rules with URL flags. |
+| **MIT licensed** | Read the [license](LICENSE) and [third-party notices](THIRD_PARTY_NOTICES.md); keep the privacy layer in your own stack. |
 
-The canonical all-on string is `HPSIBEG`, but `/$https://...` is preferred when everything should be enabled.
+<a id="quick-start"></a>
+## Quick start
 
-Unknown flag letters fail with HTTP 400 instead of silently changing policy.
+### 1. Start locally
 
-## Supported LLM wire formats
-
-The proxy **does not translate protocols**. It preserves the request shape and only edits string values that may contain sensitive text.
-
-It has explicit notice injection and stream handling for:
-
-- OpenAI Chat Completions (`/v1/chat/completions`)
-- OpenAI Responses (`/v1/responses`)
-- Anthropic Messages (`/v1/messages`)
-
-Unknown JSON endpoints are still proxied and redacted generically, but no protocol-specific user-message notice is injected unless the body can be recognized as one of the supported families.
-
-Headers such as `Authorization`, `x-api-key`, `anthropic-version`, OpenAI project/organization headers, and arbitrary provider headers are forwarded. Hop-by-hop headers plus proxy/browser identity headers (`Cookie`, `CF-*`, `Sec-*`, forwarding IP headers, etc.) are removed so the relay does not accidentally disclose its own session or network identity to an untrusted upstream. Upstream redirects are not followed.
-
-## Redaction lifecycle
-
-At runtime/isolate startup, `worker.js` generates a random 256-bit salt. For every request it creates a fresh in-memory replacement table.
-
-A sensitive value becomes:
-
-```text
-{{Redact:<sha256-hex>}}
-```
-
-where the digest is:
-
-```text
-SHA-256(original_text + runtime_salt)
-```
-
-The same plaintext in the same runtime therefore gets the same token, and the same request reuses one mapping entry. The mapping is never persisted and is discarded after the request/response stream completes.
-
-The implementation deliberately does not expose the salt or plaintext in response headers or logs.
-
-### Redact Notice
-
-The notice is **always enabled**; it is not a URL flag. Redaction happens first, then the following English metadata is inserted at byte/character position 0 of the last user message:
-
-```text
-Sensitive values are redacted before forwarding, including messages, tool inputs, and tool results. You may see {{Redact:sha256}} placeholders; treat them as opaque and preserve them exactly. Sensitive values you read appear as placeholders, and placeholders you emit in text or tool calls are restored to the original secrets.
-```
-
-This is deliberately short, but it tells the model both directions of the contract: **reads are redacted before reaching the model; outputs are restored before reaching the client**. That includes placeholders inside tool/function-call arguments as well as ordinary assistant text. Tool results or other sensitive tool content sent back to the model in a later request are scanned and redacted again before forwarding.
-
-For OpenAI Responses with a string `input`, the notice is prefixed to that string. For array/message forms it is prefixed to the last `role: "user"` textual content block. If there is no user message, nothing artificial is added.
-
-## Streaming
-
-`text/event-stream` responses are restored incrementally with downstream backpressure.
-
-The stream layer understands text/delta channels used by OpenAI Chat, OpenAI Responses, and Anthropic Messages, including tool/function argument deltas and common reasoning/text delta fields. A partial prefix of a possible `{{Redact:...}}` token is retained until enough subsequent SSE data proves that it is either a complete known token or cannot become one.
-
-This means a token split across HTTP chunks **and** across logical SSE events is restored correctly. The tests exhaust every possible split position of a 75-byte placeholder and also exercise one-byte transport chunks.
-
-## High-entropy detector
-
-`H` runs only after tokenizing text into ASCII alphanumeric blocks separated by whitespace/special characters. It never scans blocks of length 8 or less, and numeric-only blocks are left to the structured phone/ID/bank detectors.
-
-It uses an English character-bigram cross-entropy score rather than ordinary empirical Shannon entropy. The decision threshold decreases with block length and is linearly interpolated between calibrated anchors. A small symbol-diversity check rejects repetitive strings.
-
-The deterministic local regression fixture currently produces:
-
-- natural-word concatenations: `296 / 30000 = 0.9867%` classified high entropy
-- random hex/base62 recall: about 91-92% at length 9, 96-98% at length 12, >99% around length 16, and 100% in the sampled length-24/32 sets
-
-See [docs/ENTROPY.md](docs/ENTROPY.md) and run `npm run entropy-report` to reproduce the report.
-
-## Cloudflare Workers
-
-No build step is required.
+You need **Node.js 20+**, Git, and a terminal. The HTTP examples use Bash and curl 7.76+; the SDK examples are an alternative. The gateway has no runtime dependencies to install.
 
 ```bash
-npm install
+git clone https://github.com/CassiopeiaCode/CosyRedactGateway.git
+cd CosyRedactGateway
+npm start
+```
+
+The development adapter listens on `http://127.0.0.1:8787` by default. Keep that terminal running.
+
+### 2. Check the gateway
+
+In another terminal:
+
+```bash
+curl --fail --silent --show-error http://127.0.0.1:8787/healthz
+```
+
+Expected JSON response (formatted for readability):
+
+```json
+{
+  "ok": true,
+  "service": "cosy-redact-gateway",
+  "route": "/<flags>$<upstream-url>",
+  "flags": "HPSIBEG",
+  "defaultAll": true
+}
+```
+
+This checks local availability—not upstream connectivity or detection quality. **No API key is needed for this step.** To run the repository's regression suite, use `npm test` from the project directory.
+
+### 3. Send your first redacted request
+
+Set `OPENAI_API_KEY` in your shell using your usual secret-management method. The Bash example uses `gpt-4.1-mini`; select a model available to your account when adapting it.
+
+```bash
+: "${OPENAI_API_KEY:?Set OPENAI_API_KEY in this shell first}"
+
+curl --fail-with-body --no-buffer \
+  -H 'content-type: application/json' \
+  -H "authorization: Bearer ${OPENAI_API_KEY}" \
+  --data '{
+    "model": "gpt-4.1-mini",
+    "messages": [{
+      "role": "user",
+      "content": "Repeat this email address exactly: alice@example.com"
+    }],
+    "stream": true
+  }' \
+  'http://127.0.0.1:8787/E$https://api.openai.com/v1/chat/completions'
+```
+
+`E` enables the email detector only, so the example is easy to inspect. Your client should receive the original email when the model echoes its placeholder unchanged. This is a **real upstream call** and may incur provider charges; model output is not deterministic.
+
+**Enable all detectors:** replace `/E$https://` with `/$https://`. Keep routed URLs in **single quotes in shell commands** so `$` is not expanded.
+
+<a id="integrations"></a>
+## Connect your existing app
+
+Keep the upstream API key, model, and request shape. Change the destination to a Cosy route. Your client must preserve the embedded upstream URL and append API paths correctly.
+
+### OpenAI Python SDK
+
+Install the SDK in **your application environment**, not as a gateway dependency: `python -m pip install openai`. With `OPENAI_API_KEY` set and the local gateway running:
+
+```python
+import os
+from openai import OpenAI
+
+client = OpenAI(
+    api_key=os.environ["OPENAI_API_KEY"],
+    base_url="http://127.0.0.1:8787/E$https://api.openai.com/v1",
+)
+
+response = client.responses.create(
+    model="gpt-4.1-mini",
+    input="Repeat this email address exactly: alice@example.com",
+)
+print(response.output_text)
+```
+
+The expected routed path ends in `E$https://api.openai.com/v1/responses`. The same base URL can be used for Chat Completions. [SDK configuration reference](https://github.com/openai/openai-python)
+
+<details>
+<summary><strong>Anthropic JavaScript SDK</strong></summary>
+
+Install `@anthropic-ai/sdk` in your application. Set `ANTHROPIC_API_KEY` and `ANTHROPIC_MODEL` to an available model, then run this as an `.mjs` file:
+
+```javascript
+import Anthropic from '@anthropic-ai/sdk';
+
+const apiKey = process.env.ANTHROPIC_API_KEY;
+const model = process.env.ANTHROPIC_MODEL;
+if (!apiKey || !model) {
+  throw new Error('Set ANTHROPIC_API_KEY and ANTHROPIC_MODEL first.');
+}
+
+const client = new Anthropic({
+  apiKey,
+  baseURL: 'http://127.0.0.1:8787/E$https://api.anthropic.com',
+});
+
+const message = await client.messages.create({
+  model,
+  max_tokens: 128,
+  messages: [{
+    role: 'user',
+    content: 'Repeat this email address exactly: alice@example.com',
+  }],
+});
+console.log(message.content);
+```
+
+The SDK adds `/v1/messages`; do **not** add an extra `/v1` to this base URL. [SDK source and configuration](https://github.com/anthropics/anthropic-sdk-typescript)
+
+</details>
+
+<details>
+<summary><strong>IDE assistants, CLI tools, and custom HTTP clients</strong></summary>
+
+For a tool with a configurable API base URL, start from its actual wire protocol:
+
+| API family | Example base URL |
+| :--- | :--- |
+| OpenAI-style client that appends `/chat/completions` or `/responses` | `http://127.0.0.1:8787/E$https://api.openai.com/v1` |
+| Anthropic-style client that appends `/v1/messages` | `http://127.0.0.1:8787/E$https://api.anthropic.com` |
+| Custom HTTP client | Supply the full endpoint after `$`, as in the curl example. |
+
+**Protocol support is not the same as a verified product integration.** Cursor, Claude Code, Codex, and other tools may differ by version, authentication mode, URL handling, and where the request originates. No version-specific end-to-end claim is made here. Verify the outgoing path with synthetic data before routing sensitive work. A remotely executed client cannot reach your machine's `127.0.0.1`.
+
+</details>
+
+<a id="detectors"></a>
+## Choose what to redact
+
+```text
+https://<cosy-host>/<flags>$<full-upstream-url>
+```
+
+An **empty flag section enables every detector**. `HPSIBEG` is the explicit all-on form. Unknown letters return HTTP `400` rather than silently changing the policy.
+
+| Flag | Detector | Scope |
+| :---: | :--- | :--- |
+| `H` | High-entropy blocks | ASCII alphanumeric blocks longer than 8 characters; length-aware bigram scoring. Numeric-only blocks are excluded. |
+| `P` | Phone numbers | PRC mobile numbers and international `+…` forms. |
+| `S` | Long `sk-` secrets | `sk-` followed by at least 60 ASCII alphanumeric characters; not every provider key format. |
+| `I` | PRC citizen ID | Identity-number candidates with checksum validation. |
+| `B` | Bank-card candidates | 13–19 digits with Luhn validation, including common grouped forms. |
+| `E` | Email addresses | Email-pattern matches, such as `alice@example.com`. |
+| `G` | Gitleaks-compatible rules | The documented rule set contains 218 JavaScript entries, with keywords, secret groups, entropy checks, and allowlists. |
+
+Choose flags for your data, then evaluate false positives and missed matches. A checksum match does not establish that an account or identity is real. `G` is a serverless-compatible evaluator, not a promise of full Gitleaks CLI parity. [Detector details →](docs/REFERENCE.md#detectors)
+
+<a id="compatibility"></a>
+## Protocols and streaming
+
+| API family | Request handling | Response handling |
+| :--- | :--- | :--- |
+| **OpenAI Chat Completions** | JSON text redaction + user-message notice | JSON; supported SSE text and tool/function deltas |
+| **OpenAI Responses** | String or message-array input + notice | JSON; supported SSE text and function-argument deltas |
+| **Anthropic Messages** | Messages + user-message notice | JSON; supported SSE text and partial-JSON tool deltas |
+| **Other JSON endpoints** | Generic string redaction; notice only if a supported body family is recognized | Text/JSON restoration; no blanket guarantee for arbitrary streaming schemas |
+
+Cosy does not convert OpenAI requests into Anthropic requests, or vice versa. Non-empty non-JSON request bodies are rejected with HTTP `415` instead of bypassing redaction. Selected control fields, URLs, and image/audio payload fields are excluded to avoid corrupting requests.
+
+### Streaming claims with a test trail
+
+The repository documents tests for **every split position of a 75-byte placeholder**, plus **one-byte HTTP transport chunks**, supported SSE formats, tool/reasoning deltas, and local HTTP/Node adapter integration. Follow the implementation in [`worker.js`](worker.js) and the fixtures in [`test/`](test/).
+
+```bash
+npm test
+npm run entropy-report
+```
+
+The documented entropy fixture classifies **296 of 30,000 natural-word concatenations (0.9867%)** as high entropy. Random hex/base62 recall rises with length. These are **synthetic fixture results, not real-world privacy guarantees, throughput benchmarks, or an independent audit**. [Methodology and reproduction →](docs/ENTROPY.md)
+
+<a id="deployment"></a>
+## Deploy where you trust the gateway
+
+| Runtime | Entry point | Intended route |
+| :--- | :--- | :--- |
+| **Cloudflare Workers** | `worker.js` | Module Worker; no application build step |
+| **Deno** | `worker.js` | Direct execution or a Deno Deploy entry point |
+| **Node.js 20+** | `node-server.mjs` | Local development adapter |
+
+<details>
+<summary><strong>Cloudflare Workers</strong></summary>
+
+From the repository directory, with Wrangler and your Cloudflare account configured:
+
+```bash
 npm test
 npx wrangler deploy
 ```
 
-`wrangler.toml` points directly at `worker.js`.
-
-You can also paste/upload `worker.js` as a module Worker. The module exports:
-
-```js
-export default {
-  fetch(request, env, ctx) { ... }
-}
-```
-
-Recommended production variable:
+`wrangler.toml` already points at `worker.js`. Alternatively, upload it as a module Worker. Configure the upstream allowlist as a **Worker variable**; a local shell variable alone does not configure a deployed Worker.
 
 ```text
-REDACT_ALLOWED_HOSTS=api.openai.com,api.anthropic.com,my-provider.example
+REDACT_ALLOWED_HOSTS=api.openai.com,api.anthropic.com
 ```
 
-Without `REDACT_ALLOWED_HOSTS`, the proxy accepts arbitrary `http://` and `https://` upstream hosts because arbitrary upstream routing is part of the design. Do not expose an unrestricted instance publicly unless you intentionally want an open relay.
+Add your own upstream hostname when needed. Wrangler is deployment tooling, not a gateway runtime dependency. Before allowing public traffic, also add access control and review [Security](#security).
 
-## Deno
+</details>
 
-The same file can run directly:
+<details>
+<summary><strong>Deno</strong></summary>
+
+Run in a trusted environment and restrict upstream hosts:
 
 ```bash
-deno run --allow-net --allow-env worker.js
+REDACT_ALLOWED_HOSTS=api.openai.com,api.anthropic.com \
+  deno run --allow-net --allow-env worker.js
 ```
 
-or be used as the entry file in a Deno Deploy project. At direct execution, the bottom of `worker.js` calls `Deno.serve(...)`; when imported as a Cloudflare Worker module that branch is inert.
+Direct execution calls `Deno.serve(...)` and reads environment variables. The same module can be the entry point of a Deno Deploy project; configure its environment and access controls in that deployment.
 
-Environment variables are read with `Deno.env.toObject()` only in direct Deno mode.
+</details>
 
-## Local Node server
+<a id="security"></a>
+## Security is a boundary, not a badge
 
-Node is only a development adapter; `worker.js` itself does not import Node APIs.
+**The gateway is trusted; the upstream is not trusted with matched plaintext.** Original requests, provider credentials, and replacement maps exist inside the gateway runtime. Deploying on a hosted runtime means trusting that host—not keeping processing entirely on your laptop.
 
-```bash
-npm start
-```
+| Cosy does | Cosy does not promise |
+| :--- | :--- |
+| Replace matching text before forwarding | Find every sensitive value or preserve every task's answer quality |
+| Keep replacement maps request-local and unpersisted | Cryptographic erasure, anonymous requests, or cross-request restoration |
+| Restore unchanged, known response tokens | Recover tokens that a model edits or invents |
+| Reject unsupported non-JSON request bodies | Inspect image/audio content or redact every URL, header, or control field |
+| Filter proxy/browser identity headers | Hide upstream credentials: `Authorization` and `x-api-key` are forwarded intentionally |
 
-Default address:
+**Before exposing a deployment:** set `REDACT_ALLOWED_HOSTS`, keep private-upstream blocking enabled, and add external authentication/access control. A host allowlist restricts destinations; it does **not** authenticate callers. Review surrounding request logs and retention policies. Do not rely on the built-in hostname checks as a complete network egress or SSRF defense.
 
-```text
-http://127.0.0.1:8787
-```
+Default limits are **16 MiB per request body** and **16,384 unique replacements per request**. Default CORS is `*`; that is not access control. [All runtime settings →](docs/REFERENCE.md#settings) · [Existing security policy →](SECURITY.md)
 
-Example:
+<a id="faq"></a>
+## A few important questions
 
-```bash
-curl -N \
-  -H 'content-type: application/json' \
-  -H "authorization: Bearer $OPENAI_API_KEY" \
-  --data '{"model":"gpt-4.1-mini","messages":[{"role":"user","content":"mail me at alice@example.com"}],"stream":true}' \
-  'http://127.0.0.1:8787/E$https://api.openai.com/v1/chat/completions'
-```
+<details>
+<summary><strong>Is this encryption or irreversible anonymization?</strong></summary>
 
-## Runtime settings
+Neither. Cosy replaces selected strings with salted-hash identifiers and keeps an in-memory lookup table to reverse the substitution. The surrounding prompt still goes upstream. Hash identifiers do not eliminate all inference or correlation risks.
 
-| Variable | Default | Meaning |
-|---|---:|---|
-| `REDACT_ALLOWED_HOSTS` | unset | comma-separated hostname allow-list; unset allows arbitrary upstreams |
-| `REDACT_BLOCK_PRIVATE_UPSTREAMS` | `true` | block private, loopback, link-local, and metadata upstream addresses after host normalization; set to `false` only for a trusted private deployment |
-| `REDACT_PARSE_NESTED_JSON` | `true` | recursively redact JSON-looking string values (including tool-call `arguments`); set to `false` for legacy text-only handling |
-| `REDACT_MAX_BODY_BYTES` | 16 MiB | maximum request body buffered for safe JSON redaction |
-| `REDACT_MAX_REDACTIONS` | 16384 | maximum unique plaintext replacements in one request |
-| `REDACT_CORS_ORIGIN` | `*` | `Access-Control-Allow-Origin` value |
-| `HOST` | `127.0.0.1` | Node local adapter only |
-| `PORT` | `8787` | Node local adapter only |
+</details>
 
-Private, loopback, link-local, and metadata upstream addresses are blocked by default after the upstream host is parsed and normalized. Disable this only for a deliberately trusted private deployment. JSON-looking string fields are parsed and redacted recursively when possible, then serialized back to strings; this includes tool-call `arguments`.
+<details>
+<summary><strong>What does “request-local” mean?</strong></summary>
 
-Non-empty request bodies must be JSON. This is intentional fail-closed behavior: an unknown binary or plaintext body is rejected with 415 instead of being forwarded without redaction.
+The plaintext-to-token map belongs to one request and its response stream. It is discarded afterwards. The salt is generated per runtime/isolate, not per request: the same plaintext can produce the same token in that runtime. Tokens from an older request cannot be restored unless the current request establishes the corresponding mapping.
 
-Large base64 image/audio payload fields and URL/control fields are excluded from text redaction to avoid corrupting multimodal requests. The defaults are intentionally generous for large LLM payloads; on memory-constrained deployments, lower `REDACT_MAX_BODY_BYTES` and/or `REDACT_MAX_REDACTIONS` explicitly.
+</details>
 
-## Tests
+<details>
+<summary><strong>Will my existing workflow behave identically?</strong></summary>
 
-```bash
-npm test
-```
+Not necessarily. Matching text is changed, a notice is injected into a supported user message, selected headers are filtered, and only recognized streaming fields receive protocol-specific handling. Redaction can affect tasks that need the original value; false positives can remove useful context. Test your own prompts and tools with synthetic fixtures first.
 
-The suite covers:
+</details>
 
-- URL flag/default routing and upstream query preservation
-- lossless text-block offsets
-- email, phone, `sk-`, PRC ID, Luhn bank card, and representative Gitleaks-compatible provider rules
-- repeated-value token reuse and exact restoration
-- OpenAI Chat, OpenAI Responses, and Anthropic Messages request bodies
-- Redact Notice placement
-- authorization/API-key forwarding and stripping of proxy-only identity headers
-- JSON fail-closed behavior and redaction limits
-- real local HTTP upstream integration
-- real local Node adapter integration
-- non-stream restoration
-- OpenAI Chat/Responses and Anthropic SSE
-- tool/reasoning/partial-JSON delta fields
-- one-byte HTTP chunks and every placeholder split boundary
-- length-aware entropy Monte Carlo regression
-- static Web-API-only portability check for `worker.js`
+<details>
+<summary><strong>Can I use a private or local upstream?</strong></summary>
 
-GitHub Actions runs the same test suite on every push and pull request.
+Literal private, loopback, and link-local destinations are blocked by default after hostname normalization. Only disable `REDACT_BLOCK_PRIVATE_UPSTREAMS` in an intentionally trusted private deployment. An allowlist and network-level egress restrictions remain important. [Routing and errors →](docs/REFERENCE.md#routing)
 
-The `G` rule signatures are partly derived from Gitleaks; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+</details>
 
-## Security notes
+<a id="contributing"></a>
+## Help make the boundary better
 
-This relay reduces what an untrusted upstream sees, but it is not a cryptographic sandbox and no pattern detector can guarantee discovery of every secret. In particular:
+Useful contributions include detector regression cases, missed-match/false-positive reports, reproducible client integrations, and SSE edge cases. Start an [issue](https://github.com/CassiopeiaCode/CosyRedactGateway/issues) with the runtime, protocol, flags, and a **synthetic or sanitized** reproduction. Never attach real credentials or private prompts. Run `npm test` before submitting a change; follow [SECURITY.md](SECURITY.md) for security-reporting guidance.
 
-- a model can modify a placeholder instead of echoing it, in which case it cannot be restored;
-- a detector false negative is still sent upstream;
-- an unrestricted deployment is an open proxy unless you set `REDACT_ALLOWED_HOSTS` or protect the Worker externally;
-- runtime salts are isolate-local, not globally stable across Cloudflare/Deno instances;
-- replacement state is intentionally request-local, so a placeholder from an older request cannot be restored later;
-- image/audio binary content is not inspected by this text-focused implementation.
+### Further reading
 
-See [SECURITY.md](SECURITY.md) for deployment guidance.
+[Routing, lifecycle, and runtime settings](docs/REFERENCE.md) · [Entropy calibration](docs/ENTROPY.md) · [Source](worker.js) · [Tests](test/) · [Third-party notices](THIRD_PARTY_NOTICES.md)
 
-## TransformVetter relationship
+### Acknowledgements & license
 
-The URL envelope intentionally follows TransformVetter's documented `/{config}${upstream-url}` proxy convention, while this project uses a much smaller letter-flag config and **pass-through protocol semantics**. It does not include TransformVetter's protocol conversion or moderation engine.
+The URL envelope follows [TransformVetter](https://github.com/CassiopeiaCode/TransformVetter)'s `/{config}${upstream-url}` convention; Cosy does not include its protocol-conversion or moderation engine. Some rule signatures derive from Gitleaks; see [third-party notices](THIRD_PARTY_NOTICES.md).
 
-TransformVetter: https://github.com/CassiopeiaCode/TransformVetter
+Thanks to the [Linux.do](https://linux.do) community for its support. Released under the [MIT License](LICENSE).
 
-## Acknowledgements
-
-Community support matters. ❤️
-
-[Linux.do](https://linux.do/)  
-Thanks to the support from Linux.do
-
-## License
-
-MIT.
-
-## Rambling
-
-~~However, Fengfeng10 added no value to this project.~~
+<p align="center"><sub>A small privacy layer. An explicit trust boundary. Your existing LLM stack.</sub></p>
