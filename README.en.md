@@ -58,11 +58,11 @@ A known-format rule asks whether text matches a configured pattern. **High-entro
     <source media="(prefers-reduced-motion: reduce) and (max-width: 600px)" srcset="docs/readme/high-entropy-mobile-en-poster.png">
     <source media="(prefers-reduced-motion: reduce)" srcset="docs/readme/high-entropy-en-poster.png">
     <source media="(max-width: 600px)" srcset="docs/readme/high-entropy-mobile-en.gif">
-    <img src="docs/readme/high-entropy-en.gif" alt="Mechanism illustration: when a known pattern does not match, high-entropy detection can still score an eligible random-looking block and replace a detected value. Not a maskit benchmark." width="1040">
+    <img src="docs/readme/high-entropy-en.gif" alt="Mechanism illustration: when a known pattern does not match, high-entropy detection can still score an eligible random-looking block and replace a detected value. Synthetic example, not a test recording." width="1040">
   </picture>
 </p>
 
-*Mechanism illustration, not a screen recording or a comparative benchmark. The secret is synthetic and the token is shortened. No real credential is shown.*
+*Mechanism illustration, not a test recording. The credential is synthetic and the placeholder is shortened. No real credential is shown.*
 
 | Stage | Illustrative text |
 | :--- | :--- |
@@ -98,7 +98,7 @@ A useful security claim should be inspectable. The repository includes a **local
 node scripts/demo-high-entropy.mjs --lang=en
 ```
 
-It prints the observed result for the same synthetic, unlabeled candidate under **`PSIBEG` (high-entropy detection off), `H` (high-entropy detection only), and empty flags (all on)**. It also checks exact restoration and high-entropy detection's documented exclusions. It uses no network and does not call a model. Results describe these fixtures only; the script is not a head-to-head maskit test.
+It prints the observed result for the same synthetic, unlabeled candidate under **`PSIBEG` (high-entropy detection off), `H` (high-entropy detection only), and empty flags (all on)**. It also checks exact restoration and high-entropy detection's documented exclusions. It uses no network and does not call a model. Results describe these synthetic fixtures only, not production leak rates.
 
 For the project's broader regression and entropy fixtures:
 
@@ -107,16 +107,7 @@ npm test
 npm run entropy-report
 ```
 
-The repository's published calibration reports **296 / 30,000 natural-word concatenations (0.9867%)** classified as high entropy; random hex/base62 recall increases with length. These are synthetic fixture results, not a production leak rate or an independently reproduced benchmark in this README update. [Methodology](docs/ENTROPY.md) · [High-entropy detection: evidence, comparison scope, and limitations](docs/HIGH-ENTROPY.en.md)
-
-<details>
-<summary><strong>How this differs from maskit's documented detection approach</strong></summary>
-
-Maskit documents known-format rules, custom terms and regular expressions; its reviewed rules also include Bearer tokens and credential assignments. It is **not** limited to a few vendor prefixes. Cosy's distinguishing claim here is the additional, explicitly documented **prefix- and assignment-label-independent bigram-based high-entropy detection**. No equivalent layer was established from the maskit documentation and rule excerpts reviewed for this update.
-
-That supports a focused architectural comparison—not “maskit can never implement this” or “Cosy is safer in every situation.” No controlled all-on, head-to-head benchmark was run. [Review scope and source links →](docs/HIGH-ENTROPY.en.md#comparison)
-
-</details>
+The repository's published calibration reports **296 / 30,000 natural-word concatenations (0.9867%)** classified as high entropy; random hex/base62 recall increases with length. These are synthetic fixture results, not a production leak rate or an independently reproduced benchmark in this README update. [Methodology](docs/ENTROPY.md) · [High-entropy detection: evidence, verification, and limitations](docs/HIGH-ENTROPY.en.md)
 
 <a id="quick-start"></a>
 ## Start locally. Turn every detector on.

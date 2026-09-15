@@ -2,7 +2,7 @@
 
 [← 中文 README](../README.md) · [English](HIGH-ENTROPY.en.md) · [技术参考](REFERENCE.md)
 
-本文区分**实现事实**、**既有合成样本结果**和**需要验证的定位推论**。对比部分沿用 2026 年 9 月 15 日高熵检测优先版文档中的查阅记录；该记录没有固定双方 commit ID。这次中文化与排版更新没有重新执行竞品比较或原网关测试，因此本文不是针对固定版本的安全审计。
+本文说明高熵凭据检测的实现、既有合成样本结果、验证方法与安全边界。既有结果不等于当前版本的复测成绩；请在自己的检出版本中运行演示与回归测试。本次文档更新未重新运行网关测试，不构成安全审计。
 
 <a id="claim"></a>
 路由开关 `H` 对应高熵凭据检测。留空标志位会启用包括高熵检测在内的全部检测器。
@@ -36,7 +36,7 @@ node scripts/demo-high-entropy.mjs --json
 
 **关闭高熵检测的结果来自实际观察，不预设它必然漏检。** 后续版本中的其他规则可能增加覆盖，脚本会报告这种变化，而不是制造差异。如果高熵检测／全开不再满足样例的预期完整覆盖，断言会明确失败。
 
-脚本不联网，不调用模型。它检查导出的检测与文本脱敏函数，不等于 SDK 路由、真实上游、完整 HTTP 网关或 maskit 的端到端测试。README 中的动画是独立的机制示意，不是该脚本的录屏。
+脚本不联网，不调用模型。它检查导出的检测与文本脱敏函数，不等于 SDK 路由、真实上游或完整 HTTP 网关的端到端测试。README 中的动画是独立的机制示意，不是该脚本的录屏。
 
 ## 已有校准，不是新跑出的基准
 
@@ -49,31 +49,23 @@ npm test
 npm run entropy-report
 ```
 
-严谨的横向测试需要固定双方版本和全开配置，使用相同的合成凭据、正常代码、上下文、编码及字段位置，同时报告漏检、部分覆盖、误报和不检查的范围。检测规则条目更多，本身不证明整体更安全。
-
 <a id="comparison"></a>
-## 与 maskit 的差异：已经支持什么，尚未证明什么
+<a id="validation"></a>
+## 如何验证额外的检测覆盖
 
-| 维度 | Cosy | 既有查阅范围内的 maskit |
+固定同一个 Cosy 版本和同一组输入，分别观察以下三种策略：
+
+| 策略 | 标志位 | 验证重点 |
 | :--- | :--- | :--- |
-| 已知密钥格式 | 专用规则与 Gitleaks 兼容评估器 | 文档和查阅的规则片段包含已知格式 API Key 规则。 |
-| 赋值／Bearer 上下文 | 由适用的密钥规则支持 | `SECRET`／`TOKEN` 定义包含凭据赋值与 Bearer Token，不能在比较时省略。 |
-| 不依赖前缀和赋值标签的二元字符评分 | 明确实现并作为高熵检测公开说明 | 查阅的 README 与规则片段未能确立具有同类评分层。 |
-| 自定义能力 | 通过标志位选择检测器 | 文档说明了自定义词和正则。 |
-| 整体泄漏防护 | 不作普遍保证 | 该次文档更新没有执行双方全开配置的受控对照。 |
+| 关闭高熵检测 | `PSIBEG` | 记录其他检测器对候选值的实际覆盖，不预设它们一定漏检。 |
+| 仅高熵检测 | `H` | 单独观察高熵检测是否命中，以及覆盖了哪些字符。 |
+| 全部启用 | 空标志位或 `HPSIBEG` | 检查组合后的覆盖和精确还原，而不只看原字符串是否消失。 |
 
-**资料支持的定位：** Cosy 明确提供这层额外启发式检测。
+把合成凭据与正常代码放入相同上下文，并分别检查不同编码和字段位置。记录漏检、部分覆盖、误报及不检查的范围。样例中的额外覆盖需要实际测量，不能直接推广为所有凭据的检测率。
 
-**需要进一步评估的推论：** 对于缺少模式检测所需上下文、但符合高熵检测条件的值，这条路径可以增加检测覆盖。
+### 实现与校准入口
 
-**尚未证明：** 相比 maskit 的数值化安全提升、maskit 底层无法加入该能力，或者 Cosy 在所有场景下都更安全。
-
-### 既有查阅记录中的来源
-
-以下公开来源沿用 2026 年 9 月 15 日高熵检测优先版文档记录，不代表此次语言更新重新核对了最新分支：
-
-- Cosy 的 [README](https://github.com/CassiopeiaCode/CosyRedactGateway/blob/main/README.md)、[worker 实现](https://github.com/CassiopeiaCode/CosyRedactGateway/blob/main/worker.js)与[熵检测校准](https://github.com/CassiopeiaCode/CosyRedactGateway/blob/main/docs/ENTROPY.md)。
-- maskit 的 [README](https://github.com/xiaYuTian11/maskit/blob/master/README.md)、[transparent.py](https://github.com/xiaYuTian11/maskit/blob/master/engine/transparent.py) 与 [shield_defaults.py](https://github.com/xiaYuTian11/maskit/blob/master/engine/shield_defaults.py)。原查阅范围包含 API Key 模式、凭据赋值／Bearer 标签和配置默认值，没有进行全仓库安全审计。
+以当前检出的 [`worker.js`](../worker.js)、[熵检测校准](ENTROPY.md)和[本地演示脚本](../scripts/demo-high-entropy.mjs)为验证入口。报告结果时附上版本、策略与样本条件；本文没有增加新的性能或检测率结论。
 
 ## 程序员需要了解的边界
 

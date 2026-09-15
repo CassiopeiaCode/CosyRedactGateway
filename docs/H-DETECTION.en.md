@@ -2,7 +2,7 @@
 
 [简体中文](HIGH-ENTROPY.md) · [English README](../README.en.md) · [Technical reference](REFERENCE.en.md)
 
-This note separates **implementation facts**, **reported fixture results**, and **positioning inferences**. It retains the source-scoped review from the high-entropy-first documentation package dated **2026-09-15**. That review did not establish pinned commit IDs. This language and presentation update did not repeat the repository comparison or run the original gateway test suite; it is not an audit of a pinned release.
+This note covers the implementation, existing synthetic-fixture results, verification steps, and security boundaries of high-entropy credential detection. Published results are not a fresh test of your current checkout; run the demonstration and regression tests against your own revision. The gateway tests were not rerun for this documentation update, which is not a security audit.
 
 <a id="claim"></a>
 The routing flag `H` selects high-entropy credential detection. Empty flags enable every detector, including high-entropy detection.
@@ -34,7 +34,7 @@ Run these from the repository root. The script imports the checked-out `worker.j
 
 The high-entropy-off result is **observed rather than hardcoded to miss**. Another rule can gain coverage in a later revision. The script reports that change rather than manufacturing a difference. Its assertions fail visibly if the fixture no longer demonstrates the expected high-entropy-only / all-on coverage.
 
-No network is used. This exercises exported detection and text-redaction functions—not SDK routing, a live upstream, the whole HTTP gateway, or maskit. README animations are separate explanatory illustrations, not recordings of this script.
+No network is used. This exercises exported detection and text-redaction functions—not SDK routing, a live upstream, or the whole HTTP gateway. README animations are separate explanatory illustrations, not recordings of this script.
 
 ## Existing calibration, not a new benchmark
 
@@ -47,25 +47,23 @@ npm test
 npm run entropy-report
 ```
 
-A defensible head-to-head evaluation would fix both revisions and all-on configurations; use the same synthetic credentials, benign code, surrounding contexts, encodings and field locations; and report misses, partial matches, false positives and coverage exclusions together. A greater count of detector entries is not by itself proof of greater security.
-
 <a id="comparison"></a>
-## Comparison with maskit: what was and was not established
+<a id="validation"></a>
+## Verify the additional detection coverage
 
-| Dimension | Cosy | maskit, within reviewed public materials |
+Keep the Cosy revision and inputs fixed, and observe these three policies:
+
+| Policy | Flags | What to verify |
 | :--- | :--- | :--- |
-| Known key formats | Dedicated rules and Gitleaks-compatible evaluator | Known-format API key rules are documented and present in the reviewed rule excerpts. |
-| Assignment/Bearer contexts | Supported by applicable secret rules | `SECRET`/`TOKEN` definitions cover credential assignments and Bearer tokens; these must not be omitted from a fair comparison. |
-| Prefix- and assignment-label-independent bigram scoring | Explicitly implemented and documented as high-entropy detection | An equivalent scoring layer was not established from the README and detection-rule excerpts reviewed. |
-| Customization | Detector selection through flags | Custom words and regular expressions are documented. |
-| Overall leak prevention | No universal guarantee | No controlled all-on comparison was performed for this update. |
+| High-entropy detection off | `PSIBEG` | Record actual coverage from the other detectors; do not assume they must miss. |
+| High-entropy detection only | `H` | Isolate whether high-entropy detection matches, and which characters it covers. |
+| All detectors enabled | Empty flags or `HPSIBEG` | Check combined coverage and exact restoration, not just disappearance of the original string. |
 
-**Source-supported positioning:** Cosy explicitly provides this additional heuristic layer. **Inference to evaluate:** it can add coverage for eligible values lacking the context required by pattern-based detection. **Not established:** a numerical security uplift over maskit, architectural impossibility of adding the feature to maskit, or universal superiority.
+Use synthetic credentials and benign code in the same contexts, and check different encodings and field locations. Report misses, partial coverage, false positives, and uninspected content. Measure additional coverage on the actual fixtures; do not extrapolate it to a detection rate for every credential.
 
-Sources consulted on 2026-09-15:
+### Implementation and calibration references
 
-- [Cosy README](https://github.com/CassiopeiaCode/CosyRedactGateway/blob/main/README.md), [worker implementation](https://github.com/CassiopeiaCode/CosyRedactGateway/blob/main/worker.js), and [entropy calibration](https://github.com/CassiopeiaCode/CosyRedactGateway/blob/main/docs/ENTROPY.md).
-- [maskit README](https://github.com/xiaYuTian11/maskit/blob/master/README.md), [transparent.py](https://github.com/xiaYuTian11/maskit/blob/master/engine/transparent.py), and [shield_defaults.py](https://github.com/xiaYuTian11/maskit/blob/master/engine/shield_defaults.py). The reviewed material includes API-key patterns, credential assignment/Bearer labels, and configuration defaults. A whole-repository security audit was not performed.
+Use the checked-out [`worker.js`](../worker.js), [entropy calibration](ENTROPY.md), and [local demonstration script](../scripts/demo-high-entropy.mjs) as verification entry points. Include the revision, policy, and fixture conditions when reporting results. This note adds no new performance or detection-rate claims.
 
 ## Boundaries that matter to developers
 

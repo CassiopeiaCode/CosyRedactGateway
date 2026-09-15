@@ -59,11 +59,11 @@
     <source media="(prefers-reduced-motion: reduce) and (max-width: 600px)" srcset="docs/readme/high-entropy-mobile-zh-poster.png">
     <source media="(prefers-reduced-motion: reduce)" srcset="docs/readme/high-entropy-zh-poster.png">
     <source media="(max-width: 600px)" srcset="docs/readme/high-entropy-mobile-zh.gif">
-    <img src="docs/readme/high-entropy-zh.gif" alt="机制示意：已知规则没有命中时，高熵检测仍可对符合条件的随机文本块评分；命中后替换为占位符。不是与 maskit 的实测比较。" width="1040">
+    <img src="docs/readme/high-entropy-zh.gif" alt="机制示意：已知规则没有命中时，高熵检测仍可对符合条件的随机文本块评分；命中后替换为占位符。合成样例，非实测录屏。" width="1040">
   </picture>
 </p>
 
-*这是机制示意，不是实测录屏或竞品基准测试。示例凭据为合成字符串，占位符经过缩写，不含真实凭据。*
+*这是机制示意，不是实测录屏。示例凭据为合成字符串，占位符经过缩写，不含真实凭据。*
 
 | 阶段 | 示意文本 |
 | :--- | :--- |
@@ -99,7 +99,7 @@
 node scripts/demo-high-entropy.mjs
 ```
 
-它会对同一个无标签的合成字符串，分别打印 **`PSIBEG`（关闭高熵检测）、`H`（仅高熵检测）、空标志位（全部启用）** 时的实际结果，并检查精确还原以及高熵检测已说明的排除条件。脚本不联网，不调用模型；结果只描述这些样例，**不是 maskit 对照测试**。
+它会对同一个无标签的合成字符串，分别打印 **`PSIBEG`（关闭高熵检测）、`H`（仅高熵检测）、空标志位（全部启用）** 时的实际结果，并检查精确还原以及高熵检测已说明的排除条件。脚本不联网，不调用模型；结果只描述这些合成样例，**不代表生产环境泄漏率**。
 
 仓库中更完整的回归与熵检测样本可这样运行：
 
@@ -108,16 +108,7 @@ npm test
 npm run entropy-report
 ```
 
-项目已发布的校准记录中，**30,000 个自然词拼接样本有 296 个（0.9867%）被判为高熵**；随机 hex/base62 样本的召回率随长度提高。这是合成样本结果，不是生产泄漏率，也不是本次 README 更新独立复测出的基准成绩。[校准方法](docs/ENTROPY.md) · [高熵检测：证据、对比范围与限制](docs/HIGH-ENTROPY.md)
-
-<details>
-<summary><strong>与 maskit 已公开检测方式的区别</strong></summary>
-
-maskit 公开说明了固定格式规则、自定义词和正则；既有对比资料查阅的规则还包括 Bearer Token 与凭据赋值检测，**不应将它描述为只能识别几个厂商前缀**。这里突出 Cosy 的差异是：额外提供了明确公开、**不要求已知前缀或凭据赋值标签的二元字符高熵启发式检测**。既有对比资料中的 maskit 文档与规则片段未能确认有同类检测层。
-
-这个差异支持有范围的架构对比，不等于“maskit 永远做不到”，也不等于“Cosy 在所有场景下都更安全”。该对比没有两边全开配置的受控基准结果。[查阅范围与来源 →](docs/HIGH-ENTROPY.md#comparison)
-
-</details>
+项目已发布的校准记录中，**30,000 个自然词拼接样本有 296 个（0.9867%）被判为高熵**；随机 hex/base62 样本的召回率随长度提高。这是合成样本结果，不是生产泄漏率，也不是本次 README 更新独立复测出的基准成绩。[校准方法](docs/ENTROPY.md) · [高熵检测：证据、验证方法与限制](docs/HIGH-ENTROPY.md)
 
 <a id="quick-start"></a>
 ## 本地运行，全部启用

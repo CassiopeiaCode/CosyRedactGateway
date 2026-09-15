@@ -3,7 +3,7 @@
  * Local, synthetic-fixture demonstration of high-entropy credential detection.
  * No network, provider key, SDK, or external dependency is used.
  * Calls the checked-out worker.js rather than reimplementing its detector.
- * This is NOT a maskit benchmark or a production leak-rate measurement.
+ * These synthetic fixtures do not measure production leak rates.
  * Run: node scripts/demo-high-entropy.mjs [--json] [--lang=zh|en]
  */
 import assert from 'node:assert/strict';
@@ -77,7 +77,7 @@ try {
     allRoundTripsExact: results.every((r) => r.restoredExactly),
   };
   const report = {
-    kind: 'Synthetic local high-entropy detection demonstration; not a comparative security benchmark',
+    kind: 'Synthetic local high-entropy detection demonstration; not a production leak-rate measurement',
     runtime: process.version,
     syntheticInput: input,
     results, exclusions, checks,
@@ -103,8 +103,8 @@ try {
     console.log(english ? 'All-on rewritten text:' : '全开后的文本：', results[2].redactedText);
     console.log(english ? '\nChecks:' : '\n检查：', checks);
     console.log(english
-      ? '\nOnly these synthetic fixtures were tested. No maskit process or model was called.'
-      : '\n只检查上述合成样例；未调用 maskit 或模型，不代表生产环境泄漏率。');
+      ? '\nOnly these synthetic fixtures were tested. No network or model was used; results do not measure production leak rates.'
+      : '\n只检查上述合成样例；未联网或调用模型，不代表生产环境泄漏率。');
   }
 
   assert.ok(Object.values(checks).every(Boolean),
