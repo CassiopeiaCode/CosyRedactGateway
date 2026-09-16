@@ -101,7 +101,7 @@ SHA-256(original_text + runtime_salt)
 | `E` | 邮箱地址格式匹配 |
 | `G` | Gitleaks 兼容的 JavaScript 规则评估：关键词、secret groups、Shannon 熵阈值和允许列表 |
 
-文档中的 `G` 规则集包含 **218 条 JavaScript 条目**。这是规则条目数，不是经过验证的提供商数量或召回保证。部分签名源自 Gitleaks，必须保留 [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md)。该评估器不承诺与 Gitleaks CLI 的所有行为完全等价。
+文档中的 `G` 规则集包含 **218 条 JavaScript 条目**。这是规则条目数，不是经过验证的提供商数量或召回保证。部分签名源自 Gitleaks，必须保留 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。该评估器不承诺与 Gitleaks CLI 的所有行为完全等价。
 
 ### 高熵检测的评分方式
 

@@ -101,7 +101,7 @@ The repository documentation describes exhaustive tests of each split position o
 | `E` | Email-address pattern matching |
 | `G` | Gitleaks-compatible JavaScript rule evaluation: keywords, secret groups, Shannon-entropy thresholds, allowlists |
 
-The documented `G` rule set contains **218 JavaScript entries**. This is a rule-entry count, not the number of verified providers or a recall guarantee. Rule signatures are partly derived from Gitleaks; keep [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md) with the project. The evaluator does not claim full parity with every Gitleaks CLI behavior.
+The documented `G` rule set contains **218 JavaScript entries**. This is a rule-entry count, not the number of verified providers or a recall guarantee. Rule signatures are partly derived from Gitleaks; keep [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) with the project. The evaluator does not claim full parity with every Gitleaks CLI behavior.
 
 ### High-entropy scoring
 

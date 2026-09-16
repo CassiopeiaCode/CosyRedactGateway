@@ -254,7 +254,7 @@ SDK 会追加 `/v1/messages`；不要在这个 Base URL 后再添加 `/v1`。[SD
 | **请求级映射** | 在当前请求中还原原值，无需持久化映射数据库。 |
 | **理解流式边界** | 处理受支持的文本和工具参数增量，包括跨 SSE 事件、跨 HTTP chunk 的占位符。 |
 | **显式检测策略** | 通过 URL 字母开关选择结构化检测、高熵检测与 Gitleaks 兼容规则。 |
-| **MIT 许可证** | 阅读[许可证](LICENSE)与[第三方声明](THIRD_PARTY_NOTICES.md)，把隐私层留在自己的技术栈中。 |
+| **MIT 许可证** | 阅读[许可证](LICENSE)与[第三方声明](docs/THIRD_PARTY_NOTICES.md)，把隐私层留在自己的技术栈中。 |
 
 <a id="detectors"></a>
 ## 全开为起点，再按数据调优
@@ -419,11 +419,11 @@ REDACT_ALLOWED_HOSTS=api.openai.com,api.anthropic.com \
 
 ### 延伸阅读
 
-[路由、生命周期与运行时配置](docs/REFERENCE.md) · [熵检测校准](docs/ENTROPY.md) · [源码](worker.js) · [测试](test/) · [第三方声明](THIRD_PARTY_NOTICES.md)
+[路由、生命周期与运行时配置](docs/REFERENCE.md) · [熵检测校准](docs/ENTROPY.md) · [源码](worker.js) · [测试](test/) · [第三方声明](docs/THIRD_PARTY_NOTICES.md)
 
 ### 致谢与许可证
 
-URL 外壳沿用 [TransformVetter](https://github.com/CassiopeiaCode/TransformVetter) 的 `/{config}${upstream-url}` 约定；Cosy 不包含其协议转换或内容审核引擎。部分规则签名源自 Gitleaks，详见[第三方声明](THIRD_PARTY_NOTICES.md)。
+URL 外壳沿用 [TransformVetter](https://github.com/CassiopeiaCode/TransformVetter) 的 `/{config}${upstream-url}` 约定；Cosy 不包含其协议转换或内容审核引擎。部分规则签名源自 Gitleaks，详见[第三方声明](docs/THIRD_PARTY_NOTICES.md)。
 
 感谢 [Linux.do](https://linux.do) 社区的支持。本项目使用 [MIT 许可证](LICENSE)。
 
