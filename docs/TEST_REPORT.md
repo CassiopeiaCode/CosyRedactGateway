@@ -39,4 +39,4 @@ base62 length= 32 recall=100.00%
 
 Cloudflare `workerd`/Wrangler and the Deno binary were not installed in this build container, so those platform CLIs were not executed locally. `worker.js` has a regression test that forbids Node-only APIs/imports and uses only the Web Fetch/Streams/Crypto surface plus the guarded Deno direct-entry stanza.
 
-The `G` detector now contains **218 JavaScript evaluator entries** and tests Gitleaks-style keywords/secretGroup extraction, Shannon entropy, rule-level allowlists, representative direct/assignment signatures, private keys/JWTs, and generic credential fallback. It remains intentionally serverless-portable rather than byte-for-byte execution of native Go/RE2; see `docs/GITLEAKS-COMPAT.md`.
+The `G` detector now contains **218 JavaScript evaluator entries** and tests Gitleaks-style keywords/secretGroup extraction, Shannon entropy, rule-level allowlists, representative direct/assignment signatures, private keys/JWTs, and generic credential fallback. It remains intentionally serverless-portable rather than byte-for-byte execution of native Go/RE2; see `GITLEAKS-COMPAT.md`.

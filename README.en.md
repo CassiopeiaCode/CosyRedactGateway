@@ -252,7 +252,7 @@ For a tool with a configurable API base URL, start from its actual wire protocol
 | **Request-local mappings** | Restore values without a persistent replacement database. |
 | **Streaming-aware restoration** | Handle supported text and tool-argument deltas, including tokens split across SSE events and HTTP chunks. |
 | **Explicit detector policy** | Choose structured detectors, high-entropy detection, and Gitleaks-compatible rules with URL flags. |
-| **MIT licensed** | Read the [license](LICENSE) and [third-party notices](THIRD_PARTY_NOTICES.md); keep the privacy layer in your own stack. |
+| **MIT licensed** | Read the [license](LICENSE) and [third-party notices](docs/THIRD_PARTY_NOTICES.md); keep the privacy layer in your own stack. |
 
 <a id="detectors"></a>
 ## Start with every detector; tune with your own fixtures
@@ -417,11 +417,11 @@ Useful contributions include detector regression cases, missed-match/false-posit
 
 ### Further reading
 
-[Routing, lifecycle, and runtime settings](docs/REFERENCE.en.md) · [Entropy calibration](docs/ENTROPY.md) · [Source](worker.js) · [Tests](test/) · [Third-party notices](THIRD_PARTY_NOTICES.md)
+[Routing, lifecycle, and runtime settings](docs/REFERENCE.en.md) · [Entropy calibration](docs/ENTROPY.md) · [Source](worker.js) · [Tests](test/) · [Third-party notices](docs/THIRD_PARTY_NOTICES.md)
 
 ### Acknowledgements & license
 
-The URL envelope follows [TransformVetter](https://github.com/CassiopeiaCode/TransformVetter)'s `/{config}${upstream-url}` convention; Cosy does not include its protocol-conversion or moderation engine. Some rule signatures derive from Gitleaks; see [third-party notices](THIRD_PARTY_NOTICES.md).
+The URL envelope follows [TransformVetter](https://github.com/CassiopeiaCode/TransformVetter)'s `/{config}${upstream-url}` convention; Cosy does not include its protocol-conversion or moderation engine. Some rule signatures derive from Gitleaks; see [third-party notices](docs/THIRD_PARTY_NOTICES.md).
 
 Thanks to the [Linux.do](https://linux.do) community for its support. Released under the [MIT License](LICENSE).
 
