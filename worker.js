@@ -32,8 +32,12 @@ function randomSalt() {
   return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-// One salt per runtime/isolate startup, as requested.
-const RUNTIME_SALT = randomSalt();
+// One salt per runtime/isolate startup, initialized lazily inside request handling.
+let runtimeSalt = null;
+function getRuntimeSalt() {
+  if (runtimeSalt === null) runtimeSalt = randomSalt();
+  return runtimeSalt;
+}
 
 export function parseFlags(raw) {
   const upper = (raw || "").toUpperCase();
@@ -507,7 +511,7 @@ export function findSensitiveSpans(text, flags) {
 export class RedactionLimitError extends Error {}
 
 export class RedactionContext {
-  constructor({ salt = RUNTIME_SALT, maxRedactions = DEFAULT_MAX_REDACTIONS, parseNestedJson = true } = {}) {
+  constructor({ salt = getRuntimeSalt(), maxRedactions = DEFAULT_MAX_REDACTIONS, parseNestedJson = true } = {}) {
     this.salt = salt;
     this.maxRedactions = maxRedactions;
     this.parseNestedJson = parseNestedJson;
@@ -879,7 +883,7 @@ export async function handleRequest(request, env = {}, options = {}) {
   const maxBody=intSetting(env?.REDACT_MAX_BODY_BYTES,DEFAULT_MAX_BODY_BYTES);
   const maxRedactions=intSetting(env?.REDACT_MAX_REDACTIONS,DEFAULT_MAX_REDACTIONS);
   const parseNestedJson = !/^(0|false|no|off)$/i.test(String(env?.REDACT_PARSE_NESTED_JSON ?? "true"));
-  const ctx=new RedactionContext({salt:options.salt || RUNTIME_SALT,maxRedactions,parseNestedJson});
+  const ctx=new RedactionContext({salt:options.salt || getRuntimeSalt(),maxRedactions,parseNestedJson});
   const headers=filteredRequestHeaders(request.headers);
   let body;
   if (request.method !== "GET" && request.method !== "HEAD") {
