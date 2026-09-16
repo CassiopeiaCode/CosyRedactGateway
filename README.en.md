@@ -73,8 +73,7 @@ A known-format rule asks whether text matches a configured pattern. **High-entro
 
 The original value is restored only if the model preserves a known placeholder exactly. Real placeholders contain a 64-character SHA-256 digest. Cosy restores tool arguments too, but does **not** execute tools or authorize their actions. [Full round-trip contract →](docs/REFERENCE.en.md#lifecycle)
 
-<details>
-<summary><strong>See the complete redaction and restoration round trip</strong></summary>
+**Complete redaction and restoration round trip**
 
 <p align="center">
   <picture>
@@ -86,8 +85,6 @@ The original value is restored only if the model preserves a known placeholder e
 </p>
 
 Mechanism illustration using synthetic data. Digests and protocol notices are abbreviated. Restoration requires a known, unchanged placeholder in the current request.
-
-</details>
 
 <a id="proof"></a>
 ## Verify the extra layer
