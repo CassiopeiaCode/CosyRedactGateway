@@ -13,7 +13,7 @@
   <a href="#high-entropy"><img src="docs/readme/badge-high-entropy-en.svg" alt="High-entropy credential detection: prefix-independent"></a>
   <a href="#quick-start"><img src="docs/readme/badge-all-on-en.svg" alt="All detectors on: HPSIBEG"></a>
   <a href="#compatibility"><img src="docs/readme/badge-streaming-en.svg" alt="JSON and SSE"></a>
-  <a href="LICENSE"><img src="docs/readme/badge-license-en.svg" alt="MIT license"></a>
+  <a href="LICENSE"><img src="docs/readme/badge-license-en.svg" alt="Apache-2.0 license"></a>
 </p>
 
 <p align="center">
@@ -249,7 +249,7 @@ For a tool with a configurable API base URL, start from its actual wire protocol
 | **Request-local mappings** | Restore values without a persistent replacement database. |
 | **Streaming-aware restoration** | Handle supported text and tool-argument deltas, including tokens split across SSE events and HTTP chunks. |
 | **Explicit detector policy** | Choose structured detectors, high-entropy detection, and Gitleaks-compatible rules with URL flags. |
-| **MIT licensed** | Read the [license](LICENSE) and [third-party notices](docs/THIRD_PARTY_NOTICES.md); keep the privacy layer in your own stack. |
+| **Apache-2.0 licensed** | Read the [license](LICENSE) and [third-party notices](docs/THIRD_PARTY_NOTICES.md); keep the privacy layer in your own stack. |
 
 <a id="detectors"></a>
 ## Start with every detector; tune with your own fixtures
@@ -420,6 +420,6 @@ Useful contributions include detector regression cases, missed-match/false-posit
 
 The URL envelope follows [TransformVetter](https://github.com/CassiopeiaCode/TransformVetter)'s `/{config}${upstream-url}` convention; Cosy does not include its protocol-conversion or moderation engine. Some rule signatures derive from Gitleaks; see [third-party notices](docs/THIRD_PARTY_NOTICES.md).
 
-Thanks to the [Linux.do](https://linux.do) community for its support. Released under the [MIT License](LICENSE).
+Thanks to the [Linux.do](https://linux.do) community for its support. Released under the [Apache License 2.0](LICENSE).
 
 <p align="center"><sub>Your code goes to AI. Your credentials shouldn't. Inspect locally before forwarding.</sub></p>
