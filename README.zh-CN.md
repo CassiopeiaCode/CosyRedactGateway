@@ -14,7 +14,7 @@
   <a href="#high-entropy"><img src="docs/readme/badge-high-entropy.svg" alt="高熵凭据检测：不依赖已知前缀"></a>
   <a href="#quick-start"><img src="docs/readme/badge-all-on.svg" alt="全部启用：HPSIBEG"></a>
   <a href="#compatibility"><img src="docs/readme/badge-streaming.svg" alt="JSON 与 SSE 流式还原"></a>
-  <a href="LICENSE"><img src="docs/readme/badge-license.svg" alt="MIT 许可证"></a>
+  <a href="LICENSE"><img src="docs/readme/badge-license.svg" alt="Apache-2.0 许可证"></a>
 </p>
 
 <p align="center">
@@ -251,7 +251,7 @@ SDK 会追加 `/v1/messages`；不要在这个 Base URL 后再添加 `/v1`。[SD
 | **请求级映射** | 在当前请求中还原原值，无需持久化映射数据库。 |
 | **理解流式边界** | 处理受支持的文本和工具参数增量，包括跨 SSE 事件、跨 HTTP chunk 的占位符。 |
 | **显式检测策略** | 通过 URL 字母开关选择结构化检测、高熵检测与 Gitleaks 兼容规则。 |
-| **MIT 许可证** | 阅读[许可证](LICENSE)与[第三方声明](docs/THIRD_PARTY_NOTICES.md)，把隐私层留在自己的技术栈中。 |
+| **Apache-2.0 许可证** | 阅读[许可证](LICENSE)与[第三方声明](docs/THIRD_PARTY_NOTICES.md)，把隐私层留在自己的技术栈中。 |
 
 <a id="detectors"></a>
 ## 全开为起点，再按数据调优
@@ -422,6 +422,6 @@ REDACT_ALLOWED_HOSTS=api.openai.com,api.anthropic.com \
 
 URL 外壳沿用 [TransformVetter](https://github.com/CassiopeiaCode/TransformVetter) 的 `/{config}${upstream-url}` 约定；Cosy 不包含其协议转换或内容审核引擎。部分规则签名源自 Gitleaks，详见[第三方声明](docs/THIRD_PARTY_NOTICES.md)。
 
-感谢 [Linux.do](https://linux.do) 社区的支持。本项目使用 [MIT 许可证](LICENSE)。
+感谢 [Linux.do](https://linux.do) 社区的支持。本项目使用 [Apache License 2.0](LICENSE)。
 
 <p align="center"><sub>代码交给 AI。凭据，不该跟着走。先在本地检查，再交给上游。</sub></p>
