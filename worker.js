@@ -1,3 +1,5 @@
+// Copyright 2026 CassiopeiaCode
+// SPDX-License-Identifier: Apache-2.0
 // Cosy Redact Gateway — universal Cloudflare Worker / Deno module.
 // Runtime dependencies: none. Requires Web Fetch, Web Streams, and Web Crypto APIs.
 
