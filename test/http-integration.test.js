@@ -19,7 +19,7 @@ test("real local HTTP upstream receives redacted JSON and client gets restored J
   try{
     const u=`https://proxy.local/E$http://127.0.0.1:${port}/v1/responses`;
     const request=new Request(u,{method:"POST",headers:{"content-type":"application/json","authorization":"Bearer local-key"},body:JSON.stringify({model:"g",input:"a@example.com"})});
-    const response=await handleRequest(request,{}, {salt:"fixed"});
+    const response=await handleRequest(request,{REDACT_BLOCK_PRIVATE_UPSTREAMS:"false"}, {salt:"fixed"});
     assert.equal(response.status,200); assert.equal(auth,"Bearer local-key");
     assert(!upstreamBody.input.includes("a@example.com")); assert.match(upstreamBody.input,/^Sensitive values are redacted/);
     assert.equal((await response.json()).output_text,"echo a@example.com");
