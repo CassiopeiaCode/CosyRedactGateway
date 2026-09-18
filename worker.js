@@ -614,12 +614,18 @@ function prependToContent(message, protocol) {
   return true;
 }
 
-export function injectRedactNotice(body, protocol) {
+export function injectRedactNotice(body, protocol, options = {}) {
+  if (options.enabled === false) return false;
+  const position = options.position || "last_user";
+  if (position !== "first_user" && position !== "last_user") throw new Error("REDACT_NOTICE_POSITION must be 'first_user' or 'last_user'");
   if (!body || typeof body !== "object") return false;
   if (protocol === "openai_responses") {
     if (typeof body.input === "string") { body.input = REDACT_NOTICE + "\n\n" + body.input; return true; }
     if (Array.isArray(body.input)) {
-      for (let i = body.input.length - 1; i >= 0; i--) {
+      const start = position === "first_user" ? 0 : body.input.length - 1;
+      const end = position === "first_user" ? body.input.length : -1;
+      const step = position === "first_user" ? 1 : -1;
+      for (let i = start; i !== end; i += step) {
         const item = body.input[i];
         if (item && item.role === "user") return prependToContent(item, protocol);
       }
@@ -627,7 +633,10 @@ export function injectRedactNotice(body, protocol) {
     }
   }
   if (Array.isArray(body.messages)) {
-    for (let i = body.messages.length - 1; i >= 0; i--) {
+    const start = position === "first_user" ? 0 : body.messages.length - 1;
+    const end = position === "first_user" ? body.messages.length : -1;
+    const step = position === "first_user" ? 1 : -1;
+    for (let i = start; i !== end; i += step) {
       const m = body.messages[i];
       if (m && m.role === "user") return prependToContent(m, protocol);
     }
@@ -885,6 +894,9 @@ export async function handleRequest(request, env = {}, options = {}) {
   const maxBody=intSetting(env?.REDACT_MAX_BODY_BYTES,DEFAULT_MAX_BODY_BYTES);
   const maxRedactions=intSetting(env?.REDACT_MAX_REDACTIONS,DEFAULT_MAX_REDACTIONS);
   const parseNestedJson = !/^(0|false|no|off)$/i.test(String(env?.REDACT_PARSE_NESTED_JSON ?? "true"));
+  const noticeEnabled = !/^(0|false|no|off)$/i.test(String(env?.REDACT_NOTICE_ENABLED ?? "true"));
+  const noticePosition = String(env?.REDACT_NOTICE_POSITION ?? "last_user").trim().toLowerCase();
+  if (noticePosition !== "first_user" && noticePosition !== "last_user") return jsonError(400,"REDACT_NOTICE_POSITION must be 'first_user' or 'last_user'");
   const ctx=new RedactionContext({salt:options.salt || getRuntimeSalt(),maxRedactions,parseNestedJson});
   const headers=filteredRequestHeaders(request.headers);
   let body;
@@ -899,7 +911,7 @@ export async function handleRequest(request, env = {}, options = {}) {
       try {
         data=await redactJson(data,ctx,target.flags);
         const protocol=detectProtocol(data,target.upstream,request.headers);
-        injectRedactNotice(data,protocol);
+        injectRedactNotice(data,protocol,{enabled:noticeEnabled,position:noticePosition});
       } catch(e) { if (e instanceof RedactionLimitError) return jsonError(413,e.message); throw e; }
       body=JSON.stringify(data); headers.set("content-type","application/json"); headers.delete("content-length");
     } else body="";
