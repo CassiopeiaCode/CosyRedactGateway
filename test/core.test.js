@@ -77,6 +77,18 @@ test("notice handles Responses string and content arrays", () => {
   assert.match(b.input[0].content[0].text,/^Sensitive values are redacted/);
 });
 
+test("notice can target the first user message for stable prefixes", () => {
+  const body = { messages: [
+    { role: "user", content: "first" },
+    { role: "assistant", content: "answer" },
+    { role: "user", content: "latest" }
+  ] };
+  assert.equal(injectRedactNotice(body, "openai_chat", { position: "first_user" }), true);
+  assert.match(body.messages[0].content, /^Sensitive values are redacted/);
+  assert.equal(body.messages[2].content, "latest");
+  assert.equal(injectRedactNotice({ messages: [{ role: "user", content: "x" }] }, "openai_chat", { enabled: false }), false);
+});
+
 test("notice handles Anthropic content block without touching image data", async () => {
   const raw = "A".repeat(200);
   const body = {model:"claude-test",messages:[{role:"user",content:[{type:"image",source:{type:"base64",media_type:"image/png",data:raw}},{type:"text",text:"a@example.com"}]}]};

@@ -369,7 +369,7 @@ REDACT_ALLOWED_HOSTS=api.openai.com,api.anthropic.com \
 
 **对外开放部署前：** 配置 `REDACT_ALLOWED_HOSTS`，保留私有上游阻断，并添加外部认证／访问控制。主机允许列表限制目标地址，**不会**认证调用者。检查周边组件的请求日志与留存策略；不要把内置主机名检查当作完整的网络出口或 SSRF 防护。
 
-默认限制为**每个请求体 16 MiB**、**每个请求最多 16,384 个不同原值替换**。默认 CORS 为 `*`，它不是访问控制。[全部运行时配置 →](docs/REFERENCE.md#settings) · [现有安全策略 →](SECURITY.md)
+默认限制为**每个请求体 16 MiB**、**每个请求最多 16,384 个不同原值替换**。默认 CORS 为 `*`，它不是访问控制。`REDACT_NOTICE_ENABLED`（默认 `true`）控制是否注入 Redact Notice；`REDACT_NOTICE_POSITION`（默认 `last_user`）可设为 `first_user`，将 notice 固定在首个 user 消息以保持增长会话的前缀缓存稳定。[全部运行时配置 →](docs/REFERENCE.md#settings) · [现有安全策略 →](SECURITY.md)
 
 <a id="faq"></a>
 ## 几个重要问题

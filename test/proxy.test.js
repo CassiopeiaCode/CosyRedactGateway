@@ -108,6 +108,21 @@ test("Responses array format injects notice into last user item only", async () 
   assert(!seen.input[2].content[0].text.includes("a@example.com"));
 });
 
+test("notice environment settings control injection location", async () => {
+  let seen;
+  const fetchImpl = async (_url, init) => { seen = JSON.parse(init.body); return new Response("ok"); };
+  const body = { model: "g", messages: [
+    { role: "user", content: "first" },
+    { role: "assistant", content: "answer" },
+    { role: "user", content: "latest" }
+  ] };
+  await handleRequest(req("https://p/E$https://api.example/v1/chat/completions", body), { REDACT_NOTICE_POSITION: "first_user" }, { fetchImpl, salt: "fixed" });
+  assert.match(seen.messages[0].content, /^Sensitive values are redacted/);
+  assert.equal(seen.messages[2].content, "latest");
+  await handleRequest(req("https://p/E$https://api.example/v1/chat/completions", body), { REDACT_NOTICE_ENABLED: "false" }, { fetchImpl, salt: "fixed" });
+  assert(!seen.messages.some((m) => typeof m.content === "string" && m.content.startsWith("Sensitive values are redacted")));
+});
+
 test("nested JSON string arguments are recursively redacted", async () => {
   let seen;
   const fetchImpl = async (_url, init) => {
