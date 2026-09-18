@@ -557,13 +557,39 @@ function shouldSkipString(path) {
   return false;
 }
 
-export async function redactJson(value, ctx, flags, path = []) {
+const CHAT_REASONING_KEYS = new Set(["reasoning_content", "reasoning", "reasoning_details"]);
+
+function isRequestModelState(protocol, root, path, value) {
+  // Historical assistant reasoning/thinking is upstream-generated model state.
+  // Recognition is protocol-, path-, and role-aware; field names alone never bypass redaction.
+  if (protocol === "openai_responses") {
+    return path.length === 2 && path[0] === "input" && /^\d+$/.test(path[1]) &&
+      value && typeof value === "object" && !Array.isArray(value) &&
+      (value.type === "reasoning" || value.type === "compaction");
+  }
+  if (protocol === "anthropic_messages") {
+    if (path.length !== 4 || path[0] !== "messages" || path[2] !== "content" ||
+        !/^\d+$/.test(path[1]) || !/^\d+$/.test(path[3])) return false;
+    const message = root?.messages?.[Number(path[1])];
+    return message?.role === "assistant" && value && typeof value === "object" && !Array.isArray(value) &&
+      (value.type === "thinking" || value.type === "redacted_thinking");
+  }
+  if (protocol === "openai_chat") {
+    if (path.length !== 3 || path[0] !== "messages" || !/^\d+$/.test(path[1]) ||
+        !CHAT_REASONING_KEYS.has(path[2])) return false;
+    return root?.messages?.[Number(path[1])]?.role === "assistant";
+  }
+  return false;
+}
+
+export async function redactJson(value, ctx, flags, protocol = "generic", path = [], root = value) {
+  if (isRequestModelState(protocol, root, path, value)) return value;
   if (typeof value === "string") {
     if (!shouldSkipString(path) && ctx.parseNestedJson && /^[\s]*[\[{]/.test(value)) {
       try {
         const nested = JSON.parse(value);
         if (nested && typeof nested === "object") {
-          const redacted = await redactJson(nested, ctx, flags, path.concat("<nested-json>"));
+          const redacted = await redactJson(nested, ctx, flags, protocol, path.concat("<nested-json>"), root);
           return JSON.stringify(redacted);
         }
       } catch { /* Treat non-JSON strings as ordinary text. */ }
@@ -572,12 +598,12 @@ export async function redactJson(value, ctx, flags, path = []) {
   }
   if (Array.isArray(value)) {
     const out = [];
-    for (let i=0;i<value.length;i++) out.push(await redactJson(value[i], ctx, flags, path.concat(String(i))));
+    for (let i=0;i<value.length;i++) out.push(await redactJson(value[i], ctx, flags, protocol, path.concat(String(i)), root));
     return out;
   }
   if (value && typeof value === "object") {
     const out = {};
-    for (const [k,v] of Object.entries(value)) out[k] = await redactJson(v, ctx, flags, path.concat(k));
+    for (const [k,v] of Object.entries(value)) out[k] = await redactJson(v, ctx, flags, protocol, path.concat(k), root);
     return out;
   }
   return value;
@@ -909,8 +935,8 @@ export async function handleRequest(request, env = {}, options = {}) {
       let data;
       try { data=JSON.parse(new TextDecoder().decode(bytes)); } catch { return jsonError(400,"Invalid JSON request body"); }
       try {
-        data=await redactJson(data,ctx,target.flags);
         const protocol=detectProtocol(data,target.upstream,request.headers);
+        data=await redactJson(data,ctx,target.flags,protocol);
         injectRedactNotice(data,protocol,{enabled:noticeEnabled,position:noticePosition});
       } catch(e) { if (e instanceof RedactionLimitError) return jsonError(413,e.message); throw e; }
       body=JSON.stringify(data); headers.set("content-type","application/json"); headers.delete("content-length");

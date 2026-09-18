@@ -113,6 +113,67 @@ test("tool results are redacted before they are forwarded to the model", async (
   assert.match(redacted.messages[1].content, /\{\{Redact:[a-f0-9]{64}\}\}/);
 });
 
+test("Responses model-state items bypass request redaction only at input top level", async () => {
+  const reasoning = {type:"reasoning",id:"rs_123",encrypted_content:"reasoning-state@example.test"};
+  const compaction = {type:"compaction",encrypted_content:"compaction-state@example.test"};
+  const body = {input:[
+    reasoning,
+    compaction,
+    {role:"user",content:[{type:"input_text",text:"user@example.com"}]},
+    {role:"user",content:[{type:"input_text",text:JSON.stringify({type:"reasoning",encrypted_content:"nested-state@example.test"})}]}
+  ]};
+  const ctx = new RedactionContext({salt:"unit-test"});
+  const redacted = await redactJson(body,ctx,all,"openai_responses");
+  assert.deepEqual(redacted.input[0],reasoning);
+  assert.deepEqual(redacted.input[1],compaction);
+  assert.match(redacted.input[2].content[0].text,/\{\{Redact:[a-f0-9]{64}\}\}/);
+  assert(!redacted.input[3].content[0].text.includes("nested-state@example.test"));
+  assert.equal(ctx.rawToToken.has("reasoning-state@example.test"),false);
+  assert.equal(ctx.rawToToken.has("compaction-state@example.test"),false);
+  assert.equal(ctx.rawToToken.has("nested-state@example.test"),true);
+});
+
+test("Anthropic assistant thinking bypass is role- and path-limited", async () => {
+  const thinking = {type:"thinking",thinking:"thought@example.com",signature:"signature@example.com"};
+  const redactedThinking = {type:"redacted_thinking",data:"opaque@example.com"};
+  const body = {messages:[
+    {role:"assistant",content:[thinking,redactedThinking,{type:"text",text:"assistant@example.com"}]},
+    {role:"user",content:[{type:"thinking",thinking:"user@example.com"}]},
+    {role:"tool",content:[{type:"redacted_thinking",data:"tool@example.com"}]}
+  ]};
+  const ctx = new RedactionContext({salt:"unit-test"});
+  const redacted = await redactJson(body,ctx,all,"anthropic_messages");
+  assert.deepEqual(redacted.messages[0].content[0],thinking);
+  assert.deepEqual(redacted.messages[0].content[1],redactedThinking);
+  assert.match(redacted.messages[0].content[2].text,/\{\{Redact:/);
+  assert.match(redacted.messages[1].content[0].thinking,/\{\{Redact:/);
+  assert.match(redacted.messages[2].content[0].data,/\{\{Redact:/);
+});
+
+test("Chat assistant reasoning fields bypass while user and normal content redact", async () => {
+  const details = {state:"details@example.com"};
+  const body = {messages:[
+    {role:"assistant",reasoning_content:"reasoning@example.com",reasoning:["array@example.com"],reasoning_details:details,content:"normal@example.com"},
+    {role:"user",reasoning_content:"user@example.com",content:JSON.stringify({reasoning_details:"nested@example.com"})},
+    {role:"tool",reasoning:"tool@example.com"}
+  ]};
+  const redacted = await redactJson(body,new RedactionContext({salt:"unit-test"}),all,"openai_chat");
+  assert.equal(redacted.messages[0].reasoning_content,"reasoning@example.com");
+  assert.deepEqual(redacted.messages[0].reasoning,["array@example.com"]);
+  assert.deepEqual(redacted.messages[0].reasoning_details,details);
+  assert.match(redacted.messages[0].content,/\{\{Redact:/);
+  assert.match(redacted.messages[1].reasoning_content,/\{\{Redact:/);
+  assert(!redacted.messages[1].content.includes("nested@example.com"));
+  assert.match(redacted.messages[2].reasoning,/\{\{Redact:/);
+});
+
+test("generic requests never enable reasoning bypass", async () => {
+  const body = {input:[{type:"reasoning",encrypted_content:"generic-state@example.test"}],messages:[{role:"assistant",reasoning_content:"chat-state@example.test"}]};
+  const redacted = await redactJson(body,new RedactionContext({salt:"unit-test"}),all,"generic");
+  assert(!redacted.input[0].encrypted_content.includes("generic-state@example.test"));
+  assert(!redacted.messages[0].reasoning_content.includes("chat-state@example.test"));
+});
+
 test("tool-call arguments containing placeholders restore to the original secret", async () => {
   const ctx = new RedactionContext({salt:"unit-test"});
   const redacted = await ctx.redactText("alice@example.com", parseFlags("E"));
