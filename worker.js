@@ -616,7 +616,7 @@ function prependToContent(message, protocol) {
 
 export function injectRedactNotice(body, protocol, options = {}) {
   if (options.enabled === false) return false;
-  const position = options.position || "last_user";
+  const position = options.position || "first_user";
   if (position !== "first_user" && position !== "last_user") throw new Error("REDACT_NOTICE_POSITION must be 'first_user' or 'last_user'");
   if (!body || typeof body !== "object") return false;
   if (protocol === "openai_responses") {
@@ -895,7 +895,7 @@ export async function handleRequest(request, env = {}, options = {}) {
   const maxRedactions=intSetting(env?.REDACT_MAX_REDACTIONS,DEFAULT_MAX_REDACTIONS);
   const parseNestedJson = !/^(0|false|no|off)$/i.test(String(env?.REDACT_PARSE_NESTED_JSON ?? "true"));
   const noticeEnabled = !/^(0|false|no|off)$/i.test(String(env?.REDACT_NOTICE_ENABLED ?? "true"));
-  const noticePosition = String(env?.REDACT_NOTICE_POSITION ?? "last_user").trim().toLowerCase();
+  const noticePosition = String(env?.REDACT_NOTICE_POSITION ?? "first_user").trim().toLowerCase();
   if (noticePosition !== "first_user" && noticePosition !== "last_user") return jsonError(400,"REDACT_NOTICE_POSITION must be 'first_user' or 'last_user'");
   const ctx=new RedactionContext({salt:options.salt || getRuntimeSalt(),maxRedactions,parseNestedJson});
   const headers=filteredRequestHeaders(request.headers);

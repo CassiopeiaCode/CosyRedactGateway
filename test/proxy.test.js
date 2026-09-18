@@ -91,7 +91,7 @@ test("proxy-only browser and Cloudflare headers are not forwarded", async () => 
   assert.equal(seenHeaders.get("sec-fetch-site"),null);
 });
 
-test("Responses array format injects notice into last user item only", async () => {
+test("Responses array format injects notice into first user item by default", async () => {
   let seen;
   const fetchImpl=async (_url,init)=>{
     seen=JSON.parse(init.body);
@@ -103,8 +103,8 @@ test("Responses array format injects notice into last user item only", async () 
     {role:"user",content:[{type:"input_text",text:"mail a@example.com"}]}
   ]};
   await handleRequest(req("https://p/E$https://api.example/v1/responses",body),{}, {fetchImpl,salt:"fixed"});
-  assert.equal(seen.input[0].content[0].text,"first");
-  assert.match(seen.input[2].content[0].text,/^Sensitive values are redacted before forwarding/);
+  assert.match(seen.input[0].content[0].text,/^Sensitive values are redacted before forwarding/);
+  assert.match(seen.input[2].content[0].text,/^mail \{\{Redact:[a-f0-9]{64}\}\}$/);
   assert(!seen.input[2].content[0].text.includes("a@example.com"));
 });
 

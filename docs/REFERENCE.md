@@ -69,7 +69,7 @@ SHA-256(original_text + runtime_salt)
 
 > Sensitive values are redacted before forwarding, including messages, tool inputs, and tool results. You may see {{Redact:sha256}} placeholders; treat them as opaque and preserve them exactly. Sensitive values you read appear as placeholders, and placeholders you emit in text or tool calls are restored to the original secrets.
 
-对于 OpenAI Responses 的字符串 `input`，提示会加在字符串前面。对于受支持的消息数组，默认提示放在最后一条用户消息的文本内容前；设置 `REDACT_NOTICE_POSITION=first_user` 后会放在第一条用户消息前，从而在持续追加历史的 agent 会话中保持稳定的前缀位置。设置 `REDACT_NOTICE_ENABLED=false` 可完全关闭提示注入。没有用户消息时不会凭空添加用户消息。即使端点 URL 未知，只要请求体被识别为受支持的家族，仍可能收到该提示。
+对于 OpenAI Responses 的字符串 `input`，提示会加在字符串前面。对于受支持的消息数组，默认提示放在第一条用户消息的文本内容前；设置 `REDACT_NOTICE_POSITION=last_user` 后会改为放在最后一条用户消息前。设置 `REDACT_NOTICE_ENABLED=false` 可完全关闭提示注入。没有用户消息时不会凭空添加用户消息。即使端点 URL 未知，只要请求体被识别为受支持的家族，仍可能收到该提示。
 
 提示要求模型原样保留占位符，但不能强制模型遵守。模型改写或凭空生成占位符时，就无法保证还原。
 
@@ -134,7 +134,7 @@ npm run entropy-report
 | `REDACT_MAX_BODY_BYTES` | `16777216`（16 MiB） | 用于 JSON 脱敏的最大缓冲请求体。 |
 | `REDACT_MAX_REDACTIONS` | `16384` | 每个请求允许替换的不同原文数量上限。 |
 | `REDACT_NOTICE_ENABLED` | `true` | 是否向支持的对话请求注入 Redact Notice；设为 `false`、`0`、`no` 或 `off` 可关闭。 |
-| `REDACT_NOTICE_POSITION` | `last_user` | Notice 注入位置，可选 `last_user` 或 `first_user`；后者适合需要稳定前缀缓存的增长型 agent 历史。 |
+| `REDACT_NOTICE_POSITION` | `first_user` | Notice 注入位置，可选 `first_user` 或 `last_user`；前者适合需要稳定前缀缓存的增长型 agent 历史。 |
 | `REDACT_CORS_ORIGIN` | `*` | `Access-Control-Allow-Origin` 的值。 |
 | `HOST` | `127.0.0.1` | 仅用于 Node 开发适配器。 |
 | `PORT` | `8787` | 仅用于 Node 开发适配器。 |
