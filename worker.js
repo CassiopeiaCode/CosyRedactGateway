@@ -584,6 +584,11 @@ function isRequestModelState(protocol, root, path, value) {
 
 export async function redactJson(value, ctx, flags, protocol = "generic", path = [], root = value) {
   if (isRequestModelState(protocol, root, path, value)) return value;
+  // Cache routing keys are opaque protocol metadata. Expanding a UUID into a
+  // redaction placeholder can exceed the upstream's key length limit.
+  // Scope this exception to the request root, not user/tool JSON with this key.
+  if ((protocol === "openai_responses" || protocol === "openai_chat") &&
+      path.length === 1 && path[0] === "prompt_cache_key" && typeof value === "string") return value;
   if (typeof value === "string") {
     if (!shouldSkipString(path) && ctx.parseNestedJson && /^[\s]*[\[{]/.test(value)) {
       try {

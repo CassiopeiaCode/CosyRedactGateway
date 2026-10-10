@@ -8,6 +8,50 @@ function req(url, body, headers={}) {
   return new Request(url,{method:"POST",headers:{"content-type":"application/json",...headers},body:JSON.stringify(body)});
 }
 
+for (const endpoint of ["responses", "chat/completions"]) {
+  test(`${endpoint}: preserve the opaque cache key without exempting user/tool content`, async () => {
+    const key = "01a1234c-62c7-7870-b85c-0cd1871bc9a7";
+    const nested = JSON.stringify({ prompt_cache_key: key });
+    const body = endpoint === "responses"
+      ? { input: [
+          { role: "user", content: nested },
+          { type: "function_call", call_id: "call_1", name: "lookup", arguments: nested }
+        ] }
+      : { messages: [
+          { role: "user", content: nested },
+          { role: "assistant", tool_calls: [{ id: "call_1", type: "function", function: { name: "lookup", arguments: nested } }] }
+        ] };
+    body.prompt_cache_key = key;
+    body.metadata = { prompt_cache_key: key };
+    let seen;
+    const response = await handleRequest(req(`https://p/$https://api.example/v1/${endpoint}`, body), {}, {
+      salt: "fixed",
+      fetchImpl: async (_url, init) => {
+        seen = JSON.parse(init.body);
+        // Model an upstream that rejects expanded routing keys.
+        return Response.json({ ok: true }, { status: seen.prompt_cache_key.length <= 64 ? 200 : 400 });
+      }
+    });
+    assert.equal(response.status, 200);
+    assert.equal(seen.prompt_cache_key, key);
+    assert.match(seen.metadata.prompt_cache_key, TOKEN);
+    const user = endpoint === "responses" ? seen.input[0].content : seen.messages[0].content;
+    const args = endpoint === "responses" ? seen.input[1].arguments : seen.messages[1].tool_calls[0].function.arguments;
+    assert.match(user, TOKEN);
+    assert(!user.includes(key));
+    assert.match(JSON.parse(args).prompt_cache_key, TOKEN);
+  });
+}
+
+test("generic requests do not exempt a top-level field named prompt_cache_key", async () => {
+  let seen;
+  await handleRequest(req("https://p/E$https://api.example/custom", { prompt_cache_key: "alice@example.com" }), {}, {
+    salt: "fixed",
+    fetchImpl: async (_url, init) => { seen = JSON.parse(init.body); return Response.json({ ok: true }); }
+  });
+  assert.match(seen.prompt_cache_key, TOKEN);
+});
+
 test("non-stream OpenAI Chat: key/header forwarding, notice, redaction, restoration", async () => {
   let seen;
   const fetchImpl = async (url, init) => {

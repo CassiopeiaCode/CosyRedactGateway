@@ -79,6 +79,8 @@ JSON-looking string values are recursively parsed, redacted, and serialized back
 
 Selected control fields such as model/role/type identifiers, URL fields, and large base64 image/audio payload fields are skipped to avoid corrupting requests. Binary image/audio content is not inspected. The relay is not a whole-request data-loss-prevention guarantee.
 
+OpenAI Responses and Chat Completions preserve the top-level `prompt_cache_key` string as opaque cache-routing metadata. Redaction placeholders can otherwise expand a Codex UUID beyond the upstream length limit. This exception does not apply to similarly named fields inside user content, tool arguments, or other nested JSON.
+
 <a id="streaming"></a>
 ## Streaming restoration
 

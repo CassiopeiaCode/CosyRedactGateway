@@ -79,6 +79,8 @@ SHA-256(original_text + runtime_salt)
 
 为避免破坏请求，部分控制字段（如模型／角色／类型标识符）、URL 字段，以及较大的 base64 图像／音频载荷字段会被跳过。不检查二进制图像／音频内容；网关不提供“整个请求绝无数据泄漏”的保证。
 
+OpenAI Responses 和 Chat Completions 请求会原样保留顶层字符串字段 `prompt_cache_key`，将其作为不透明的缓存路由元数据。否则，脱敏占位符可能把 Codex 的 UUID 扩展到超过上游长度限制。此例外不适用于用户内容、工具参数或其他嵌套 JSON 中的同名字段。
+
 <a id="streaming"></a>
 ## 流式还原
 
