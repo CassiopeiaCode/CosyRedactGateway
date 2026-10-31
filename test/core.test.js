@@ -192,3 +192,21 @@ test("tool-call arguments containing placeholders restore to the original secret
   restoreJson(response, ctx);
   assert.equal(JSON.parse(response.choices[0].message.tool_calls[0].function.arguments).email, "alice@example.com");
 });
+
+
+test("Anthropic tool result IDs remain paired while result content is redacted", async () => {
+  const id = "toolu_" + Array.from({length:48}, (_, i) => "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"[(i * 17) % 62]).join("");
+  const ctx = new RedactionContext({salt:"unit-test"});
+  const body = {messages:[
+    {role:"assistant",content:[{type:"tool_use",id,name:"example",input:{}}]},
+    {role:"user",content:[{type:"tool_result",tool_use_id:id,content:id}]}
+  ]};
+  const result = await redactJson(body, ctx, parseFlags("H"), "anthropic_messages");
+  assert.equal(result.messages[0].content[0].id, id);
+  const output = result.messages[1].content[0];
+  assert.equal(output.tool_use_id, id);
+  assert.match(output.tool_use_id, /^[a-zA-Z0-9_-]+$/);
+  assert.notEqual(output.content, id);
+  assert.match(output.content, /\{\{Redact:[a-f0-9]{64}\}\}/);
+  assert.equal(ctx.restoreText(output.content), id);
+});

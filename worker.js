@@ -547,7 +547,7 @@ export class RedactionContext {
   }
 }
 
-const CONTROL_KEYS = new Set(["model","role","type","id","object","status","name","call_id","tool_call_id","finish_reason","stop_reason","media_type","mime_type","encoding","format"]);
+const CONTROL_KEYS = new Set(["model","role","type","id","object","status","name","call_id","tool_call_id","tool_use_id","finish_reason","stop_reason","media_type","mime_type","encoding","format"]);
 function shouldSkipString(path) {
   const key = path[path.length - 1] || "";
   if (CONTROL_KEYS.has(key)) return true;
