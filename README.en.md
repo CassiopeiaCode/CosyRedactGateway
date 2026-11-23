@@ -11,7 +11,7 @@
 
 <p align="center">
   <a href="#high-entropy"><img src="docs/readme/badge-high-entropy-en.svg" alt="High-entropy credential detection: prefix-independent"></a>
-  <a href="#quick-start"><img src="docs/readme/badge-all-on-en.svg" alt="All detectors on: HPSIBEG"></a>
+  <a href="#quick-start"><img src="docs/readme/badge-all-on-en.svg" alt="All detectors on: HPSIBEGM"></a>
   <a href="#compatibility"><img src="docs/readme/badge-streaming-en.svg" alt="JSON and SSE"></a>
   <a href="LICENSE"><img src="docs/readme/badge-license-en.svg" alt="Apache-2.0 license"></a>
 </p>
@@ -46,7 +46,7 @@ A known-format rule asks whether text matches a configured pattern. **High-entro
 | :--- | :--- |
 | **Known formats & structured rules** | Recognize supported provider signatures, credential assignments, and structured personal data. |
 | **High-entropy credential detection** | Score ASCII alphanumeric blocks longer than 8 characters using length-aware English bigram cross entropy and a symbol-diversity floor. Numeric-only blocks are excluded. |
-| **All on: `HPSIBEG`** | Combine these approaches. An empty flag section enables the full set; it is not a separate “high-entropy-only” mode. |
+| **All on: `HPSIBEGM`** | Combine these approaches. An empty flag section enables the full set; it is not a separate “high-entropy-only” mode. |
 
 **The difference is an extra detection path—not a promise that every random string is a credential or that every credential will be caught.** Source and calibration: [`worker.js`](worker.js), [entropy methodology](docs/ENTROPY.md).
 
@@ -157,7 +157,7 @@ node --input-type=module -e '
   'http://127.0.0.1:8787/$https://api.openai.com/v1/chat/completions'
 ```
 
-**The empty section before `$` enables `HPSIBEG`: all detectors, including high-entropy detection.** Your app receives the original value when a detected value's token is echoed unchanged. Model output is not deterministic. Quote routed URLs in single quotes in shell commands to preserve `$`.
+**The empty section before `$` enables `HPSIBEGM`: all detectors, including high-entropy detection.** Your app receives the original value when a detected value's token is echoed unchanged. Model output is not deterministic. Quote routed URLs in single quotes in shell commands to preserve `$`.
 
 Provider authentication headers are forwarded to the chosen upstream. This example tests protection of content in the request body, not concealment of the key required to authenticate the API call.
 
@@ -258,7 +258,7 @@ For a tool with a configurable API base URL, start from its actual wire protocol
 https://<cosy-host>/<flags>$<full-upstream-url>
 ```
 
-An **empty flag section enables every detector**. `HPSIBEG` is the explicit all-on form. Unknown letters return HTTP `400` rather than silently changing the policy.
+An **empty flag section enables every detector**. `HPSIBEGM` is the explicit all-on form. Unknown letters return HTTP `400` rather than silently changing the policy.
 
 | Flag | Detector | Scope |
 | :---: | :--- | :--- |
@@ -423,3 +423,11 @@ The URL envelope follows [TransformVetter](https://github.com/CassiopeiaCode/Tra
 Thanks to the [Linux.do](https://linux.do) community for its support. Released under the [Apache License 2.0](LICENSE).
 
 <p align="center"><sub>Your code goes to AI. Your credentials shouldn't. Inspect locally before forwarding.</sub></p>
+
+## High-entropy model training
+
+The model combines an English dictionary with identifiers extracted from open-source Python projects. See [training and sources](docs/ENTROPY.md) and [per-length evaluation, 9–128 characters](docs/ENTROPY-BY-LENGTH.md).
+
+## Manual sensitive words
+
+Set `REDACT_MANUAL_WORDS` to a JSON array of non-empty strings. The `M` flag enables case-sensitive literal substring matching; default routes include `M`. An unset value or `[]` disables the list. Explicit flags without `M` skip it. Invalid configuration returns HTTP 500 when `M` is enabled. Values use the same reversible placeholders and protocol exclusions.

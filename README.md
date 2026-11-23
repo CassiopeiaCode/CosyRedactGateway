@@ -12,7 +12,7 @@
 
 <p align="center">
   <a href="#high-entropy"><img src="docs/readme/badge-high-entropy.svg" alt="高熵凭据检测：不依赖已知前缀"></a>
-  <a href="#quick-start"><img src="docs/readme/badge-all-on.svg" alt="全部启用：HPSIBEG"></a>
+  <a href="#quick-start"><img src="docs/readme/badge-all-on.svg" alt="全部启用：HPSIBEGM"></a>
   <a href="#compatibility"><img src="docs/readme/badge-streaming.svg" alt="JSON 与 SSE 流式还原"></a>
   <a href="LICENSE"><img src="docs/readme/badge-license.svg" alt="Apache-2.0 许可证"></a>
 </p>
@@ -47,7 +47,7 @@
 | :--- | :--- |
 | **已知格式与结构化规则** | 识别受支持的厂商密钥特征、凭据赋值形式和结构化个人信息。 |
 | **高熵凭据检测 / High-entropy credential detection** | 对超过 8 个字符的 ASCII 字母数字块进行长度感知的英文二元字符交叉熵评分，并检查字符多样性；排除纯数字块。 |
-| **全开：`HPSIBEG`** | 组合以上检测路径。标志位留空即启用全部检测器，不是“只开高熵检测”。 |
+| **全开：`HPSIBEGM`** | 组合以上检测路径。标志位留空即启用全部检测器，不是“只开高熵检测”。 |
 
 **增加的是检测路径，不是“随机串必然是凭据”或“所有凭据都能拦截”的保证。** 实现与校准说明：[`worker.js`](worker.js)、[熵检测方法](docs/ENTROPY.md)。
 
@@ -159,7 +159,7 @@ node --input-type=module -e '
 ```
 
 
-**`$` 前的标志位留空，等于启用 `HPSIBEG`：包括高熵检测在内的全部检测器。** 模型原样返回被检测值的占位符时，应用会收到还原后的原值；模型输出本身不保证确定。Shell 中的路由 URL 要使用单引号，避免 `$` 被展开。
+**`$` 前的标志位留空，等于启用 `HPSIBEGM`：包括高熵检测在内的全部检测器。** 模型原样返回被检测值的占位符时，应用会收到还原后的原值；模型输出本身不保证确定。Shell 中的路由 URL 要使用单引号，避免 `$` 被展开。
 
 提供商认证头仍会转发到指定上游。此示例检验的是请求正文内容的脱敏，不是隐藏用于认证该 API 调用的密钥。
 
@@ -260,7 +260,7 @@ SDK 会追加 `/v1/messages`；不要在这个 Base URL 后再添加 `/v1`。[SD
 https://<cosy-host>/<flags>$<full-upstream-url>
 ```
 
-**开关部分留空，即启用全部检测器。** `HPSIBEG` 是显式全开写法。未知字母返回 HTTP `400`，而不是静默改变策略。
+**开关部分留空，即启用全部检测器。** `HPSIBEGM` 是显式全开写法。未知字母返回 HTTP `400`，而不是静默改变策略。
 
 | 开关 | 检测器 | 范围 |
 | :---: | :--- | :--- |
@@ -425,3 +425,11 @@ URL 外壳沿用 [TransformVetter](https://github.com/CassiopeiaCode/TransformVe
 感谢 [Linux.do](https://linux.do) 社区的支持。本项目使用 [Apache License 2.0](LICENSE)。
 
 <p align="center"><sub>代码交给 AI。凭据，不该跟着走。先在本地检查，再交给上游。</sub></p>
+
+## 高熵模型训练与逐长度评估
+
+高熵模型使用英文词表与开源代码标识符混合训练。参见 [训练与数据来源](docs/ENTROPY.md) 和 [9～128 字符逐长度评估](docs/ENTROPY-BY-LENGTH.md)。
+
+## 手动敏感词
+
+将 `REDACT_MANUAL_WORDS` 设置为非空字符串组成的 JSON 数组。`M` 开关启用区分大小写的字面子串匹配；默认路由包含 `M`，显式不含 `M` 的路由跳过手动词表。未设置或 `[]` 表示不配置。启用 `M` 时配置格式错误返回 HTTP 500；脱敏还原和协议字段排除规则与其他检测器一致。

@@ -5,11 +5,11 @@ import {
   findSensitiveSpans, injectRedactNotice, detectProtocol, redactJson
 } from "../worker.js";
 
-const all = {highEntropy:true,phone:true,secret:true,identity:true,bank:true,email:true,gitleaks:true};
+const all = {highEntropy:true,phone:true,secret:true,identity:true,bank:true,email:true,gitleaks:true,manual:true};
 
 test("flags default to all and subsets are explicit", () => {
   assert.deepEqual(parseFlags(""), all);
-  assert.deepEqual(parseFlags("eS"), {highEntropy:false,phone:false,secret:true,identity:false,bank:false,email:true,gitleaks:false});
+  assert.deepEqual(parseFlags("eS"), {highEntropy:false,phone:false,secret:true,identity:false,bank:false,email:true,gitleaks:false,manual:false});
   assert.throws(() => parseFlags("EX"), /Unknown flag/);
 });
 

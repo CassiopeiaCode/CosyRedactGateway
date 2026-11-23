@@ -1,50 +1,90 @@
-# Entropy calibration
+# 高熵规则与训练
 
-The high-entropy detector is intentionally length-aware and runs only after lossless block tokenization.
+H 规则按 `[A-Za-z0-9]+` 分块，忽略长度不超过 8 和纯数字的片段。
+对转小写的字符计算含首尾标记的二元交叉熵：
+`sum(-log2(P(next | previous))) / (length + 1)`。
+分数超过按长度线性插值的阈值时命中；另外要求字符香农熵至少达到
+`min(2.5, log2(length) * 0.72)`，防止重复模式误报。
+这表示相对于词语模型的异常程度，不代表真实密码强度。
 
-## Why not ordinary Shannon entropy?
+## 数据和复现
 
-For short strings, empirical character-frequency Shannon entropy cannot distinguish many natural words from random tokens: a 9-character word with 9 unique characters and a 9-character random token with 9 unique characters both have `log2(9)` empirical bits/character. Hex strings are another failure mode because their alphabet caps ordinary entropy near 4 bits/character.
+最终使用 dwyl/english-words 的 `words_alpha.txt`：370,105 个去重英文词，
+授权为 Unlicense，随附原始授权文本。下载地址和原始文件 SHA-256 在
+`data/entropy/report.json`。已缓存原始数据，默认离线重训可复现。
+曾考察 Google 10,000 常用词表，其授权文件对商业使用有限制说明，因此未纳入最终模型。
 
-Cosy Redact Gateway therefore scores each ASCII alphanumeric block using a smoothed English character-bigram cross-entropy model and separately requires minimum observed-symbol diversity.
+```sh
+python3 scripts/train-entropy.py             # 从缓存训练、评估、更新 worker.js
+python3 scripts/train-entropy.py --download  # 更新公开词表后重新训练
+node --test test/entropy-code.test.js
+```
 
-## Runtime rule
+Python 3 仅用于训练，运行时仍无额外依赖，worker.js 仍可单文件部署。
+按每个词 SHA-256 确定 80%/10%/10% 的训练、校准和测试分区，各词互不重叠。
+对训练集统计字符转移，使用 0.5 加法平滑。沿用旧阈值曲线形状，在校准集上
+拟合统一偏移，使符合长度和多样性条件的正常词误报目标为 0.03%。
+测试集不参与参数拟合；测试误报超过 0.1% 时拒绝更新。
+`baseline.json` 保存本次改动前的参数，后续重训不会覆盖。
 
-1. Split on whitespace and special characters; keep original offsets.
-2. Ignore blocks of length `<= 8`.
-3. Ignore numeric-only blocks for `H` (phone, ID, and bank detectors handle numeric structures).
-4. Compute bigram cross entropy.
-5. Interpolate a length-dependent threshold.
-6. Require a small Shannon-diversity floor to reject repetitive strings.
+报告对比同一测试集上的旧参数和新参数，以及固定随机种子、长度
+9/12/16/24/32/64/128 的纯字母、字母数字和十六进制随机串。
+这些随机串是人工合成的检测样本，检出率不等同于真实密钥召回率。
+字典误报率也不等同于生产流量误报率：代码标识符、人名、拼音、其他语言
+和含数字词语仍需额外语料评估。本次未改变分块方式、最短长度、数字排除
+和香农熵防护，也未增加字典白名单，以免直接放过词典式密码。
 
-Threshold anchors committed in `worker.js`:
+训练更新磁盘上的 worker.js；运行中的 Node 服务需要重启才加载新模型。
 
-| Length | bits/char |
-|---:|---:|
-| 9 | 5.4240 |
-| 10 | 5.3667 |
-| 11 | 5.3423 |
-| 12 | 5.2820 |
-| 13 | 5.2565 |
-| 16 | 5.1799 |
-| 20 | 5.0612 |
-| 24 | 4.9833 |
-| 32 | 4.8907 |
-| 40 | 4.8327 |
-| 48 | 4.7662 |
-| 56 | 4.7277 |
-| 64 | 4.7052 |
-| 80 | 4.6549 |
-| 96 | 4.6248 |
-| 112 | 4.5948 |
-| 128+ | 4.5660 |
+## 开源代码标识符语料
 
-The anchors are linearly interpolated. The 128 threshold is used as a floor beyond 128 characters rather than decreasing forever.
+在英文词表基础上，加入 GitHub 固定标签的真实 Python 标识符：
+Django 5.2、Requests v2.32.3 用于训练，urllib3 2.3.0 用于校准，
+Flask 3.1.0 用于独立测试。各项目原始源码归档、授权、标识符清单及其
+SHA-256 保存在 `data/entropy/code/`。这些项目采用 BSD 或 Apache 授权，
+以随附授权文本为准。
 
-## Regression criterion
+```sh
+python3 scripts/collect-code-identifiers.py
+python3 scripts/train-entropy.py
+```
 
-`test/entropy.test.js` deterministically generates 30,000 natural-language concatenation blocks from a held-out word fixture across lengths 9–128. Current result: 296 classifications, or `0.9867%` false positives.
+提取器使用 Python AST 的 Name、arg、Attribute、函数与类定义节点，
+排除注释和字符串、tests/test、migrations、vendor/_vendor 目录。
+清单包含变量、参数、属性、函数和类名，并非仅局部变量。
+训练时按线上 `[A-Za-z0-9]+` 分块并转小写，保留 camelCase 连续结构及数字，
+忽略纯数字。每个项目内先去重。保留测试项目的全部分块，校准和训练中移除
+重叠分块；代码训练中也移除词典校准/测试词，防止跨来源泄漏。
+代码训练样本权重为 10，纯词语权重为 1，没有人工拼接数字后缀。
 
-The same test suite generates random hex and base62-like blocks and asserts increasing recall as length increases.
+阈值沿用原长度曲线，偏移取词典 0.03% 误报目标和代码校准 1% 误报目标
+所需偏移中的较大者。`before_code.json` 固定保存加入代码语料之前的模型；
+报告同时保留最初模型、纯词表模型和混合模型三个版本的评估。
+`code_with_digits` 单列含数字代码分块，但小项目可能没有满足长度条件的样本，
+此时 rate 为 null。Flask 测试集只有约 200 个长度大于 8 的分块，统计能力有限；
+目前语料只覆盖 Python，不能推广为所有语言和数字后缀的可靠性结论。
 
-This is a practical calibration, not a claim that English bigram cross entropy is a universal semantic detector. Identifiers, minified code, hashes, non-English transliterations, and unusual product names can still look secret-like; that is why `H` remains independently selectable through the URL flags.
+## 逐长度报告
+
+[完整逐长度评估](ENTROPY-BY-LENGTH.md) 列出 9～128 每个整数长度的
+随机串检出率，以及相同长度的独立英文词和 Flask 代码分块误报数。
+每长度每类生成 1,000 个随机串，纯数字不计入 H 的有效检测样本。
+原七个长度的随机样本和总体指标保留，新增长度使用独立固定随机种子。
+机器可读报告的 `evaluations.*.by_length` 保留各版本、各长度的样本数、
+命中数和命中率。缺少正常语料的长度标为无样本，不能解释为零误报。
+
+## 旧仓库拼接词测试的退化
+
+仓库原有 `test/entropy.test.js` 将多个英文词拼接后截断，固定生成
+30,000 个片段。原模型误报 296 个（0.9867%），本次混合模型误报
+954 个（3.18%）。该场景退化，与真实独立英文词及 Flask 标识符
+测试不同。本次保留选定混合模型，将该测试回归上限明确调整为 3.5%，
+并没有继续宣称该场景满足原来的 1% 目标。
+
+## 仓库文件范围
+
+训练词表、第三方源码包、标识符清单和生成缓存均不随仓库提交，
+`data/entropy/` 已加入 `.gitignore`。运行训练脚本会按需下载并提取数据。
+前文的数据与缓存路径均指本地运行后生成的文件；GitHub 仓库中仅提供
+模型代码、脚本、测试和 Markdown 评估报告。首次运行的 before 基准
+从当前 worker.js 读取；本文前后对比记录对应本次已完成的实验。
